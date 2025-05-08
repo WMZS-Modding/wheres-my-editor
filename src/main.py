@@ -1,4 +1,4 @@
-__version__ = '2.4.0'
+__version__ = '1.0.0'
 __author__ = 'SuperHero2010'
 __credits__ = [
     {
@@ -2222,6 +2222,7 @@ class WME(tk.Tk):
         self.file_menu.add_command(label = 'Open', command = self.openLevel, accelerator = f'{crossplatform.shortModifier()}+O')
         self.file_menu.add_command(label = 'Save', command = self.saveLevel, accelerator = f'{crossplatform.shortModifier()}+S')
         self.file_menu.add_command(label = 'Save as...', command = self.saveLevelAs, accelerator = f'{crossplatform.shortModifier()}+Shift+S')
+        self.file_menu.add_command(label='Save PathPoints', command=self.savePathPoints)
         self.file_menu.add_separator()
         self.file_menu.add_command(label = 'Settings', command = self.showSettings)
 
