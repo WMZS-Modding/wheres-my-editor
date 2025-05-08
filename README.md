@@ -10,7 +10,7 @@ NOTE: If you came here to read a .waltex image, then go to [wmwpy](https://githu
 
 # Get started
 To get started
-1. Get the latest release from the [releases tab](https://github.com/WMZS-Modding/wheres-my-editor/releases). Extract the zip folder into it's own folder (to keep it's files organized).
+1. Get the latest release from the [releases tab](https://github.com/WMZS-Modding/wheres-my-editor-experiments/releases). Extract the zip folder into it's own folder (to keep it's files organized).
 2. Next, you need to get the game files. You can get them in many ways, but generally, you want to have the game extracted into a folder, and all the assets in the `assets` (or `Content`) folder.
 3. Open the Where's My Editor app (wme.exe)
 4. Select the game folder.
