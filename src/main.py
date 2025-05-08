@@ -2687,6 +2687,24 @@ def draw_editable_dot(self, x, y, on_drag_callback):
     self.canvas.tag_bind(dot, "<ButtonPress-1>", start_drag)
     self.canvas.tag_bind(dot, "<B1-Motion>", do_drag)
 
+def transform_point(self, x, y, tx, ty, angle_deg):
+    angle_rad = math.radians(angle_deg)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    x_new = x * cos_a - y * sin_a + tx
+    y_new = x * sin_a + y * cos_a + ty
+    return (x_new, y_new)
+
+def inverse_transform_point(self, x, y, tx, ty, angle_deg):
+    angle_rad = -math.radians(angle_deg)
+    x -= tx
+    y -= ty
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    x_new = x * cos_a - y * sin_a
+    y_new = x * sin_a + y * cos_a
+    return (x_new, y_new)
+
 
 
 class TkErrorCatcher:
