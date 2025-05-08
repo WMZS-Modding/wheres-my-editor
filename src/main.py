@@ -133,6 +133,8 @@ import wmwpy
 from scrollframe import ScrollFrame
 import popups
 
+import pipe
+
 logging.info(f'wme version: {__version__}')
 logging.info(f'wmwpy version: {wmwpy.__version__}')
 
@@ -2571,6 +2573,30 @@ class WME(tk.Tk):
                 self.settings.remove('default_level')
         except:
             pass
+
+def savePathPoints(self):
+    if not self.level_data:
+        messagebox.showerror("Error", "No level loaded.")
+        return
+
+    try:
+        pathpoints_data = pipe.extract_all_pathpoints(
+            self.level_data,
+            image_folder=self.image_folder
+        )
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text Files", "*.txt")],
+            title="Save PathPoints"
+        )
+
+        if file_path:
+            with open(file_path, "w") as f:
+                f.write(pathpoints_data)
+            messagebox.showinfo("Saved", "PathPoints saved successfully.")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to save PathPoints.\n\n{e}")
 
 
 
