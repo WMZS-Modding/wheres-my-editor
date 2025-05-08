@@ -134,6 +134,7 @@ from scrollframe import ScrollFrame
 import popups
 
 import pipe
+import math
 
 logging.info(f'wme version: {__version__}')
 logging.info(f'wmwpy version: {wmwpy.__version__}')
@@ -2616,31 +2617,42 @@ def show_editable_pathpoints(self):
         return
 
     self.canvas.delete("pathpoints")
-    self.editable_pathpoints = {}  # {obj: [points]}
+    self.editable_pathpoints = {}
 
     for obj in self.get_pipe_objects():
         val = self.get_property(obj, "PathPoints")
         if not val:
             continue
 
+        abs_loc = self.get_property(obj, "AbsoluteLocation")
+        angle = self.get_property(obj, "Angle")
+
+        if not abs_loc or not angle:
+            continue
+
+        abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
+        angle = float(angle)
         points = self.parse_pathpoints(val)
         if not points:
             continue
 
-        self.draw_path_line(points)
+        world_points = [self.transform_point(x, y, abs_x, abs_y, angle) for x, y in points]
+        self.draw_path_line(world_points)
+        updated_local_points = list(points)
 
-        updated_points = list(points)
-
-        def make_on_drag(idx, obj_ref):
-            def callback(new_pos):
-                updated_points[idx] = new_pos
+        def make_on_drag(idx, obj_ref, abs_x, abs_y, angle_deg):
+            def callback(new_pos_canvas):
+                local_x, local_y = self.inverse_transform_point(
+                    new_pos_canvas[0], new_pos_canvas[1], abs_x, abs_y, angle_deg
+                )
+                updated_local_points[idx] = (local_x, local_y)
                 prop = obj_ref.find("./Property[@name='PathPoints']")
                 if prop is not None:
-                    prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in updated_points))
+                    prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in updated_local_points))
             return callback
 
-        for i, (x, y) in enumerate(points):
-            self.draw_editable_dot(x, y, make_on_drag(i, obj))
+        for i, (wx, wy) in enumerate(world_points):
+            self.draw_editable_dot(wx, wy, make_on_drag(i, obj, abs_x, abs_y, angle))
 
 def get_pipe_objects(self):
     return [obj for obj in self.level_data.findall(".//Object")
