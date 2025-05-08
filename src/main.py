@@ -1,5 +1,5 @@
 __version__ = '2.4.0'
-__author__ = 'ego-lay-atman-bay'
+__author__ = 'SuperHero2010'
 __credits__ = [
     {
         'name' : 'wmwpy',
@@ -18,9 +18,9 @@ __credits__ = [
     }
 ]
 __links__ = {
-    'discord' : 'https://discord.gg/eRVfbgwNku',
-    'releases' : 'https://github.com/wmw-modding/wheres-my-editor/releases/latest',
-    'bugs' : 'https://github.com/wmw-modding/wheres-my-editor/issues',
+    'discord' : 'https://discord.gg/3ypQSaNbqz',
+    'releases' : 'https://github.com/WMZS-Modding/wheres-my-editor-experiments/releases',
+    'bugs' : 'https://github.com/WMZS-Modding/wheres-my-editor-experiments/issues',
 }
 
 __min_wmwpy_version__ = "0.6.0-beta"
