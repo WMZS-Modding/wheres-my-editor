@@ -286,7 +286,8 @@ class WME(tk.Tk):
         }
         self.level : wmwpy.classes.Level = None
         self.game : wmwpy.Game = None
-        
+
+        self.show_pathpoints_var = tk.BooleanVar(value=False)
         self.createMenubar()
         self.createWindow()
         self.objectContextMenu = tk.Menu(self.level_canvas, tearoff = 0)
@@ -2287,7 +2288,13 @@ class WME(tk.Tk):
         self.menubar.add_cascade(label = 'File', menu = self.file_menu)
         self.menubar.add_cascade(label = 'View', menu = self.view_menu['menu'])
         self.menubar.add_cascade(label = 'Help', menu = self.help_menu)
-    
+
+        self.tools_menu = tk.Menu(self.menubar, tearoff=0)
+
+        self.tools_menu.add_checkbutton(label="Show PathPoints", variable=self.show_pathpoints_var, command=self.toggle_pathpoints_display)
+
+        self.menubar.add_cascade(label="Tools", menu=self.tools_menu)
+
     def updateView(self, view: str, state: bool = True):
         self.settings.set(['view', view], state)
         self.updateLevel()
@@ -2574,6 +2581,12 @@ class WME(tk.Tk):
         except:
             pass
 
+def toggle_pathpoints_display(self):
+    if self.show_pathpoints_var.get():
+        self.show_editable_pathpoints()
+    else:
+        self.canvas.delete("pathpoints")
+
 def savePathPoints(self):
     if not self.level_data:
         messagebox.showerror("Error", "No level loaded.")
@@ -2597,6 +2610,70 @@ def savePathPoints(self):
             messagebox.showinfo("Saved", "PathPoints saved successfully.")
     except Exception as e:
         messagebox.showerror("Error", f"Failed to save PathPoints.\n\n{e}")
+
+def show_editable_pathpoints(self):
+    if not self.level_data:
+        return
+
+    self.canvas.delete("pathpoints")
+    self.editable_pathpoints = {}  # {obj: [points]}
+
+    for obj in self.get_pipe_objects():
+        val = self.get_property(obj, "PathPoints")
+        if not val:
+            continue
+
+        points = self.parse_pathpoints(val)
+        if not points:
+            continue
+
+        self.draw_path_line(points)
+
+        updated_points = list(points)
+
+        def make_on_drag(idx, obj_ref):
+            def callback(new_pos):
+                updated_points[idx] = new_pos
+                prop = obj_ref.find("./Property[@name='PathPoints']")
+                if prop is not None:
+                    prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in updated_points))
+            return callback
+
+        for i, (x, y) in enumerate(points):
+            self.draw_editable_dot(x, y, make_on_drag(i, obj))
+
+def get_pipe_objects(self):
+    return [obj for obj in self.level_data.findall(".//Object")
+            if any(pipe in (obj.find("./Property[@name='Filename']") or {}).get("value", "")
+                   for pipe in pipe.TARGET_PIPES)]
+
+def get_property(self, obj, name):
+    prop = obj.find(f"./Property[@name='{name}']")
+    return prop.get("value") if prop is not None else None
+
+def parse_pathpoints(self, value: str):
+    try:
+        return [(float(x), float(y)) for x, y in (p.strip().split() for p in value.strip().split(","))]
+    except:
+        return []
+
+def draw_path_line(self, points):
+    for i in range(len(points) - 1):
+        self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2, tags='pathpoints')
+
+def draw_editable_dot(self, x, y, on_drag_callback):
+    r = 4
+    dot = self.canvas.create_oval(x - r, y - r, x + r, y + r,
+                                  fill='black', outline='white', width=1, tags='pathpoints')
+
+    def start_drag(event): self._drag_data = {"item": dot, "callback": on_drag_callback}
+    def do_drag(event):
+        new_x, new_y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        self.canvas.coords(dot, new_x - r, new_y - r, new_x + r, new_y + r)
+        self._drag_data["callback"]((new_x, new_y))
+
+    self.canvas.tag_bind(dot, "<ButtonPress-1>", start_drag)
+    self.canvas.tag_bind(dot, "<B1-Motion>", do_drag)
 
 
 
