@@ -2519,7 +2519,11 @@ class WME(tk.Tk):
             self.level_canvas.delete('object')
             self.level_canvas.delete('part')
             self.level_canvas.delete('selection')
+            self.level_canvas.delete('pathpoints')
             self.level.objects.clear()
+
+        if hasattr(self, "editable_pathpoints"):
+            del self.editable_pathpoints
         
         self.resetProperties()
         self.resetObjectSelector()
