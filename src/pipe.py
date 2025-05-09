@@ -30,7 +30,7 @@ def extract_all_pathpoints(xml_data, image_folder=None):
             temp_output_path = temp_out.name
 
         try:
-            subprocess.run(["python", "PathPointsExtractor.py", img_path, "-o", temp_output_path], check=True)
+            subprocess.run(["python", "PathPoints.py", img_path, "-o", temp_output_path], check=True)
             with open(temp_output_path, "r") as f:
                 pathpoints = f.read().strip()
         except Exception as e:
