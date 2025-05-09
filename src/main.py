@@ -2084,14 +2084,13 @@ class WME(tk.Tk):
         self.updateLevel()
     
     def dragObject(self, obj : wmwpy.classes.Object, event = None):
-        logging.debug(f"offset: {self.dragInfo['offset']}")
-        
-        obj.pos = self.windowPosToWMWPos(numpy.array((event.x, event.y)) + self.dragInfo['offset'])
-        
-        self.updateObject(obj)
+    logging.debug(f"offset: {self.dragInfo['offset']}")
 
-        if hasattr(self, "editable_pathpoints") and obj in self.editable_pathpoints:
-        
+    obj.pos = self.windowPosToWMWPos(numpy.array((event.x, event.y)) + self.dragInfo['offset'])
+
+    self.updateObject(obj)
+
+    if hasattr(self, "editable_pathpoints") and obj in self.editable_pathpoints:
         self.update_pathpoints_display(obj)
     
     def windowPosToWMWPos(self, pos : tuple = (0,0), multiplier: float = OBJECT_MULTIPLIER):
