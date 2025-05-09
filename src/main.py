@@ -2554,6 +2554,9 @@ class WME(tk.Tk):
         self.state = 'enabled'
         
         self.title(f"Where's My Editor - {os.path.splitext(os.path.basename(self.level.filename))[0]}")
+
+        if hasattr(self, "show_pathpoints_var") and self.show_pathpoints_var.get():
+            self.show_editable_pathpoints()
         
         return self.level
     
