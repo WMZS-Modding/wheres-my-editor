@@ -2091,6 +2091,7 @@ class WME(tk.Tk):
         self.updateObject(obj)
 
         if hasattr(self, "editable_pathpoints") and obj in self.editable_pathpoints:
+        
         self.update_pathpoints_display(obj)
     
     def windowPosToWMWPos(self, pos : tuple = (0,0), multiplier: float = OBJECT_MULTIPLIER):
