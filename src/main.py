@@ -2084,7 +2084,7 @@ class WME(tk.Tk):
         self.updateLevel()
     
     def dragObject(self, obj : wmwpy.classes.Object, event = None):
-    logging.debug(f"offset: {self.dragInfo['offset']}")
+        logging.debug(f"offset: {self.dragInfo['offset']}")
 
     obj.pos = self.windowPosToWMWPos(numpy.array((event.x, event.y)) + self.dragInfo['offset'])
 
