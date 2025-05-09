@@ -2089,6 +2089,9 @@ class WME(tk.Tk):
         obj.pos = self.windowPosToWMWPos(numpy.array((event.x, event.y)) + self.dragInfo['offset'])
         
         self.updateObject(obj)
+
+        if hasattr(self, "editable_pathpoints") and obj in self.editable_pathpoints:
+        self.update_pathpoints_display(obj)
     
     def windowPosToWMWPos(self, pos : tuple = (0,0), multiplier: float = OBJECT_MULTIPLIER):
         if isinstance(pos, (int, float)):
@@ -2638,6 +2641,7 @@ def show_editable_pathpoints(self):
 
         world_points = [self.transform_point(x, y, abs_x, abs_y, angle) for x, y in points]
         self.draw_path_line(world_points)
+        self.editable_pathpoints[obj] = {"original_points": points, "dots": []}
         updated_local_points = list(points)
 
         def make_on_drag(idx, obj_ref, abs_x, abs_y, angle_deg):
@@ -2652,7 +2656,8 @@ def show_editable_pathpoints(self):
             return callback
 
         for i, (wx, wy) in enumerate(world_points):
-            self.draw_editable_dot(wx, wy, make_on_drag(i, obj, abs_x, abs_y, angle))
+            dot_id = self.draw_editable_dot(wx, wy, make_on_drag(i, obj, abs_x, abs_y, angle))
+            self.editable_pathpoints[obj]["dots"].append(dot_id)
 
 def get_pipe_objects(self):
     return [obj for obj in self.level_data.findall(".//Object")
@@ -2673,11 +2678,11 @@ def draw_path_line(self, points):
     for i in range(len(points) - 1):
         self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2, tags='pathpoints')
 
-def draw_editable_dot(self, x, y, on_drag_callback):
+def draw_editable_dot(self, x, y, on_drag_callback, obj):
     r = 4
     dot = self.canvas.create_oval(x - r, y - r, x + r, y + r,
                                   fill='black', outline='white', width=1, tags='pathpoints')
-
+    
     def start_drag(event): self._drag_data = {"item": dot, "callback": on_drag_callback}
     def do_drag(event):
         new_x, new_y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
@@ -2704,6 +2709,38 @@ def inverse_transform_point(self, x, y, tx, ty, angle_deg):
     x_new = x * cos_a - y * sin_a
     y_new = x * sin_a + y * cos_a
     return (x_new, y_new)
+
+def update_pathpoints_display(self, obj):
+    data = self.editable_pathpoints.get(obj)
+    if not data:
+        return
+
+    abs_loc = self.get_property(obj, "AbsoluteLocation") or "(0,0)"
+    angle = float(self.get_property(obj, "Angle") or "0.0")
+    
+    try:
+        x0, y0 = map(float, abs_loc.strip("()").split(","))
+    except:
+        x0, y0 = 0, 0
+
+    rad = math.radians(angle)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+
+    def transform(px, py):
+        tx = cos_a * px - sin_a * py + x0
+        ty = sin_a * px + cos_a * py + y0
+        return tx, ty
+
+    points = [transform(x, y) for (x, y) in data["original_points"]]
+
+    self.canvas.delete("pathpoints_line_" + str(id(obj)))
+    for i in range(len(points) - 1):
+        self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2,
+                                tags=("pathpoints", "pathpoints_line_" + str(id(obj))))
+
+    for dot_id, (x, y) in zip(data["dots"], points):
+        r = 4
+        self.canvas.coords(dot_id, x - r, y - r, x + r, y + r)
 
 
 
