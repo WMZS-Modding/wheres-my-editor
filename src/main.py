@@ -2294,11 +2294,11 @@ class WME(tk.Tk):
         self.menubar.add_cascade(label = 'View', menu = self.view_menu['menu'])
         self.menubar.add_cascade(label = 'Help', menu = self.help_menu)
 
-        self.tools_menu = tk.Menu(self.menubar, tearoff=0)
+        self.tools_menu = tk.Menu(self.menubar, tearoff = 0)
 
-        self.tools_menu.add_checkbutton(label="Show PathPoints", variable=self.show_pathpoints_var, command=self.toggle_pathpoints_display)
+        self.tools_menu.add_checkbutton(label = "Show PathPoints", variable = self.show_pathpoints_var, onvalue = True, offvalue  =False, command = self.toggle_pathpoints_display)
 
-        self.menubar.add_cascade(label="Tools", menu=self.tools_menu)
+        self.menubar.add_cascade(label = "Tools", menu = self.tools_menu)
 
     def updateView(self, view: str, state: bool = True):
         self.settings.set(['view', view], state)
