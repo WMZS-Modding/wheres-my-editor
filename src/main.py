@@ -2639,31 +2639,39 @@ class WME(tk.Tk):
             if not abs_loc or not angle:
                 continue
 
-            abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
-            angle = float(angle)
-            points = self.parse_pathpoints(val)
-            if not points:
-                continue
+            try:
+                abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
+                angle = float(angle)
+                points = self.parse_pathpoints(val)
+                if not points:
+                    continue
 
-            world_points = [self.transform_point(x, y, abs_x, abs_y, angle) for x, y in points]
-            self.draw_path_line(world_points)
-            self.editable_pathpoints[obj] = {"original_points": points, "dots": []}
-            updated_local_points = list(points)
+                # Transform points to canvas coordinates
+                world_points = []
+                for x, y in points:
+                    canvas_x, canvas_y = self.transform_point(x, y, abs_x, abs_y, angle)
+                    # Convert to canvas coordinates
+                    canvas_x = canvas_x * self.scale
+                    canvas_y = canvas_y * self.scale
+                    world_points.append((canvas_x, canvas_y))
 
-            def make_on_drag(idx, obj_ref, abs_x, abs_y, angle_deg):
-                def callback(new_pos_canvas):
-                    local_x, local_y = self.inverse_transform_point(
-                        new_pos_canvas[0], new_pos_canvas[1], abs_x, abs_y, angle_deg
-                    )
-                    updated_local_points[idx] = (local_x, local_y)
-                    prop = obj_ref.find("./Property[@name='PathPoints']")
-                    if prop is not None:
-                        prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in updated_local_points))
-                return callback
+                # Draw lines connecting points
+                if len(world_points) > 1:
+                    for i in range(len(world_points) - 1):
+                        self.level_canvas.create_line(
+                            world_points[i][0], world_points[i][1],
+                            world_points[i+1][0], world_points[i+1][1],
+                            fill='black', width=2, tags='pathpoints'
+                        )
 
-            for i, (wx, wy) in enumerate(world_points):
-                dot_id = self.draw_editable_dot(wx, wy, make_on_drag(i, obj, abs_x, abs_y, angle))
-                self.editable_pathpoints[obj]["dots"].append(dot_id)
+                # Draw dots at each point
+                self.editable_pathpoints[obj] = {"original_points": points, "dots": []}
+                for i, (x, y) in enumerate(world_points):
+                    dot_id = self.draw_editable_dot(x, y, lambda new_pos: self.update_path_point(obj, i, new_pos))
+                    self.editable_pathpoints[obj]["dots"].append(dot_id)
+
+            except Exception as e:
+                logging.error(f"Error processing path points for object: {e}")
 
     def get_pipe_objects(self):
         return [obj for obj in self.level_data.findall(".//Object")
@@ -2680,19 +2688,21 @@ class WME(tk.Tk):
         except:
             return []
 
-    def draw_path_line(self, points):
-        for i in range(len(points) - 1):
-            self.level_canvas.create_line(*points[i], *points[i + 1], fill='black', width=2, tags='pathpoints')
-
     def draw_editable_dot(self, x, y, on_drag_callback):
-        r = 4
-        dot = self.level_canvas.create_oval(x - r, y - r, x + r, y + r,
-                                      fill='black', outline='white', width=1, tags='pathpoints')
-    
-        def start_drag(event): 
+        """Draw an editable dot at the specified coordinates"""
+        r = 4  # radius of the dot
+        dot = self.level_canvas.create_oval(
+            x - r, y - r, x + r, y + r,
+            fill='black', outline='white', width=1,
+            tags='pathpoints'
+        )
+
+        def start_drag(event):
             self._drag_data = {"item": dot, "callback": on_drag_callback}
+
         def do_drag(event):
-            new_x, new_y = self.level_canvas.canvasx(event.x), self.level_canvas.canvasy(event.y)
+            new_x = self.level_canvas.canvasx(event.x)
+            new_y = self.level_canvas.canvasy(event.y)
             self.level_canvas.coords(dot, new_x - r, new_y - r, new_x + r, new_y + r)
             self._drag_data["callback"]((new_x, new_y))
 
@@ -2700,7 +2710,42 @@ class WME(tk.Tk):
         self.level_canvas.tag_bind(dot, "<B1-Motion>", do_drag)
         return dot
 
+    def update_path_point(self, obj, point_index, new_pos):
+        """Update a path point position and redraw the path"""
+        try:
+            # Convert canvas coordinates back to world coordinates
+            world_x = new_pos[0] / self.scale
+            world_y = new_pos[1] / self.scale
+
+            # Get object's current position and angle
+            abs_loc = self.get_property(obj, "AbsoluteLocation")
+            angle = float(self.get_property(obj, "Angle") or "0.0")
+
+            if not abs_loc:
+                return
+
+            abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
+
+            # Convert world coordinates back to local coordinates
+            local_x, local_y = self.inverse_transform_point(world_x, world_y, abs_x, abs_y, angle)
+
+            # Update the path points in the XML
+            points = self.editable_pathpoints[obj]["original_points"]
+            points[point_index] = (local_x, local_y)
+
+            # Update the XML
+            prop = obj.find("./Property[@name='PathPoints']")
+            if prop is not None:
+                prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in points))
+
+            # Redraw the path
+            self.show_editable_pathpoints()
+
+        except Exception as e:
+            logging.error(f"Error updating path point: {e}")
+
     def transform_point(self, x, y, tx, ty, angle_deg):
+        """Transform a point from local to world coordinates"""
         angle_rad = math.radians(angle_deg)
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
@@ -2709,6 +2754,7 @@ class WME(tk.Tk):
         return (x_new, y_new)
 
     def inverse_transform_point(self, x, y, tx, ty, angle_deg):
+        """Transform a point from world to local coordinates"""
         angle_rad = -math.radians(angle_deg)
         x -= tx
         y -= ty
