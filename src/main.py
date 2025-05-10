@@ -2289,6 +2289,11 @@ class WME(tk.Tk):
         self.view_menu['vars']['path'].trace_add('write', lambda *args : self.updateView('path', self.view_menu['vars']['path'].get()))
         self.view_menu['menu'].add_checkbutton(label = 'path', onvalue = True, offvalue = False, variable = self.view_menu['vars']['path'])
 
+        # Add PathPoints toggle
+        self.view_menu['vars']['pathpoints'] = tk.BooleanVar(value=self.show_pathpoints_var.get())
+        self.view_menu['vars']['pathpoints'].trace_add('write', lambda *args: self.toggle_pathpoints(self.view_menu['vars']['pathpoints'].get()))
+        self.view_menu['menu'].add_checkbutton(label='PathPoints', onvalue=True, offvalue=False, variable=self.view_menu['vars']['pathpoints'])
+
         self.menubar.add_cascade(label = 'File', menu = self.file_menu)
         self.menubar.add_cascade(label = 'View', menu = self.view_menu['menu'])
         self.menubar.add_cascade(label = 'Help', menu = self.help_menu)
@@ -2620,7 +2625,7 @@ class WME(tk.Tk):
         if not self.level_data:
             return
 
-        self.canvas.delete("pathpoints")
+        self.level_canvas.delete("pathpoints")
         self.editable_pathpoints = {}
 
         for obj in self.get_pipe_objects():
@@ -2677,21 +2682,23 @@ class WME(tk.Tk):
 
     def draw_path_line(self, points):
         for i in range(len(points) - 1):
-            self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2, tags='pathpoints')
+            self.level_canvas.create_line(*points[i], *points[i + 1], fill='black', width=2, tags='pathpoints')
 
-    def draw_editable_dot(self, x, y, on_drag_callback, obj):
+    def draw_editable_dot(self, x, y, on_drag_callback):
         r = 4
-        dot = self.canvas.create_oval(x - r, y - r, x + r, y + r,
+        dot = self.level_canvas.create_oval(x - r, y - r, x + r, y + r,
                                       fill='black', outline='white', width=1, tags='pathpoints')
     
-        def start_drag(event): self._drag_data = {"item": dot, "callback": on_drag_callback}
+        def start_drag(event): 
+            self._drag_data = {"item": dot, "callback": on_drag_callback}
         def do_drag(event):
-            new_x, new_y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
-            self.canvas.coords(dot, new_x - r, new_y - r, new_x + r, new_y + r)
+            new_x, new_y = self.level_canvas.canvasx(event.x), self.level_canvas.canvasy(event.y)
+            self.level_canvas.coords(dot, new_x - r, new_y - r, new_x + r, new_y + r)
             self._drag_data["callback"]((new_x, new_y))
 
-        self.canvas.tag_bind(dot, "<ButtonPress-1>", start_drag)
-        self.canvas.tag_bind(dot, "<B1-Motion>", do_drag)
+        self.level_canvas.tag_bind(dot, "<ButtonPress-1>", start_drag)
+        self.level_canvas.tag_bind(dot, "<B1-Motion>", do_drag)
+        return dot
 
     def transform_point(self, x, y, tx, ty, angle_deg):
         angle_rad = math.radians(angle_deg)
@@ -2734,15 +2741,22 @@ class WME(tk.Tk):
 
         points = [transform(x, y) for (x, y) in data["original_points"]]
 
-        self.canvas.delete("pathpoints_line_" + str(id(obj)))
+        self.level_canvas.delete("pathpoints_line_" + str(id(obj)))
         for i in range(len(points) - 1):
-            self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2,
+            self.level_canvas.create_line(*points[i], *points[i + 1], fill='black', width=2,
                                     tags=("pathpoints", "pathpoints_line_" + str(id(obj))))
 
         for dot_id, (x, y) in zip(data["dots"], points):
             r = 4
-            self.canvas.coords(dot_id, x - r, y - r, x + r, y + r)
+            self.level_canvas.coords(dot_id, x - r, y - r, x + r, y + r)
 
+    def toggle_pathpoints(self, show):
+        self.show_pathpoints_var.set(show)
+        if show:
+            self.show_editable_pathpoints()
+        else:
+            self.level_canvas.delete("pathpoints")
+            self.editable_pathpoints = {}
 
 
 class TkErrorCatcher:
