@@ -2600,161 +2600,161 @@ class WME(tk.Tk):
         except:
             pass
 
-def toggle_pathpoints_display(self):
-    if self.show_pathpoints_var.get():
-        self.show_editable_pathpoints()
-    else:
+    def toggle_pathpoints_display(self):
+        if self.show_pathpoints_var.get():
+            self.show_editable_pathpoints()
+        else:
+            self.canvas.delete("pathpoints")
+
+    def savePathPoints(self):
+        if not self.level_data:
+            messagebox.showerror("Error", "No level loaded.")
+            return
+
+        try:
+            pathpoints_data = pipe.extract_all_pathpoints(
+                self.level_data
+            )
+
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text Files", "*.txt")],
+                title="Save PathPoints"
+            )
+
+            if file_path:
+                with open(file_path, "w") as f:
+                    f.write(pathpoints_data)
+                messagebox.showinfo("Saved", "PathPoints saved successfully.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save PathPoints.\n\n{e}")
+
+    def show_editable_pathpoints(self):
+        if not self.level_data:
+            return
+
         self.canvas.delete("pathpoints")
+        self.editable_pathpoints = {}
 
-def savePathPoints(self):
-    if not self.level_data:
-        messagebox.showerror("Error", "No level loaded.")
-        return
+        for obj in self.get_pipe_objects():
+            val = self.get_property(obj, "PathPoints")
+            if not val:
+                continue
 
-    try:
-        pathpoints_data = pipe.extract_all_pathpoints(
-            self.level_data
-        )
+            abs_loc = self.get_property(obj, "AbsoluteLocation")
+            angle = self.get_property(obj, "Angle")
 
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text Files", "*.txt")],
-            title="Save PathPoints"
-        )
+            if not abs_loc or not angle:
+                continue
 
-        if file_path:
-            with open(file_path, "w") as f:
-                f.write(pathpoints_data)
-            messagebox.showinfo("Saved", "PathPoints saved successfully.")
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to save PathPoints.\n\n{e}")
+            abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
+            angle = float(angle)
+            points = self.parse_pathpoints(val)
+            if not points:
+                continue
 
-def show_editable_pathpoints(self):
-    if not self.level_data:
-        return
+            world_points = [self.transform_point(x, y, abs_x, abs_y, angle) for x, y in points]
+            self.draw_path_line(world_points)
+            self.editable_pathpoints[obj] = {"original_points": points, "dots": []}
+            updated_local_points = list(points)
 
-    self.canvas.delete("pathpoints")
-    self.editable_pathpoints = {}
+            def make_on_drag(idx, obj_ref, abs_x, abs_y, angle_deg):
+                def callback(new_pos_canvas):
+                    local_x, local_y = self.inverse_transform_point(
+                        new_pos_canvas[0], new_pos_canvas[1], abs_x, abs_y, angle_deg
+                    )
+                    updated_local_points[idx] = (local_x, local_y)
+                    prop = obj_ref.find("./Property[@name='PathPoints']")
+                    if prop is not None:
+                        prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in updated_local_points))
+                return callback
 
-    for obj in self.get_pipe_objects():
-        val = self.get_property(obj, "PathPoints")
-        if not val:
-            continue
+            for i, (wx, wy) in enumerate(world_points):
+                dot_id = self.draw_editable_dot(wx, wy, make_on_drag(i, obj, abs_x, abs_y, angle))
+                self.editable_pathpoints[obj]["dots"].append(dot_id)
 
-        abs_loc = self.get_property(obj, "AbsoluteLocation")
-        angle = self.get_property(obj, "Angle")
+    def get_pipe_objects(self):
+        return [obj for obj in self.level_data.findall(".//Object")
+                if any(pipe in (obj.find("./Property[@name='Filename']") or {}).get("value", "")
+                       for pipe in pipe.TARGET_PIPES)]
 
-        if not abs_loc or not angle:
-            continue
+    def get_property(self, obj, name):
+        prop = obj.find(f"./Property[@name='{name}']")
+        return prop.get("value") if prop is not None else None
 
-        abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
-        angle = float(angle)
-        points = self.parse_pathpoints(val)
-        if not points:
-            continue
+    def parse_pathpoints(self, value: str):
+        try:
+            return [(float(x), float(y)) for x, y in (p.strip().split() for p in value.strip().split(","))]
+        except:
+            return []
 
-        world_points = [self.transform_point(x, y, abs_x, abs_y, angle) for x, y in points]
-        self.draw_path_line(world_points)
-        self.editable_pathpoints[obj] = {"original_points": points, "dots": []}
-        updated_local_points = list(points)
+    def draw_path_line(self, points):
+        for i in range(len(points) - 1):
+            self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2, tags='pathpoints')
 
-        def make_on_drag(idx, obj_ref, abs_x, abs_y, angle_deg):
-            def callback(new_pos_canvas):
-                local_x, local_y = self.inverse_transform_point(
-                    new_pos_canvas[0], new_pos_canvas[1], abs_x, abs_y, angle_deg
-                )
-                updated_local_points[idx] = (local_x, local_y)
-                prop = obj_ref.find("./Property[@name='PathPoints']")
-                if prop is not None:
-                    prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in updated_local_points))
-            return callback
-
-        for i, (wx, wy) in enumerate(world_points):
-            dot_id = self.draw_editable_dot(wx, wy, make_on_drag(i, obj, abs_x, abs_y, angle))
-            self.editable_pathpoints[obj]["dots"].append(dot_id)
-
-def get_pipe_objects(self):
-    return [obj for obj in self.level_data.findall(".//Object")
-            if any(pipe in (obj.find("./Property[@name='Filename']") or {}).get("value", "")
-                   for pipe in pipe.TARGET_PIPES)]
-
-def get_property(self, obj, name):
-    prop = obj.find(f"./Property[@name='{name}']")
-    return prop.get("value") if prop is not None else None
-
-def parse_pathpoints(self, value: str):
-    try:
-        return [(float(x), float(y)) for x, y in (p.strip().split() for p in value.strip().split(","))]
-    except:
-        return []
-
-def draw_path_line(self, points):
-    for i in range(len(points) - 1):
-        self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2, tags='pathpoints')
-
-def draw_editable_dot(self, x, y, on_drag_callback, obj):
-    r = 4
-    dot = self.canvas.create_oval(x - r, y - r, x + r, y + r,
-                                  fill='black', outline='white', width=1, tags='pathpoints')
-    
-    def start_drag(event): self._drag_data = {"item": dot, "callback": on_drag_callback}
-    def do_drag(event):
-        new_x, new_y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
-        self.canvas.coords(dot, new_x - r, new_y - r, new_x + r, new_y + r)
-        self._drag_data["callback"]((new_x, new_y))
-
-    self.canvas.tag_bind(dot, "<ButtonPress-1>", start_drag)
-    self.canvas.tag_bind(dot, "<B1-Motion>", do_drag)
-
-def transform_point(self, x, y, tx, ty, angle_deg):
-    angle_rad = math.radians(angle_deg)
-    cos_a = math.cos(angle_rad)
-    sin_a = math.sin(angle_rad)
-    x_new = x * cos_a - y * sin_a + tx
-    y_new = x * sin_a + y * cos_a + ty
-    return (x_new, y_new)
-
-def inverse_transform_point(self, x, y, tx, ty, angle_deg):
-    angle_rad = -math.radians(angle_deg)
-    x -= tx
-    y -= ty
-    cos_a = math.cos(angle_rad)
-    sin_a = math.sin(angle_rad)
-    x_new = x * cos_a - y * sin_a
-    y_new = x * sin_a + y * cos_a
-    return (x_new, y_new)
-
-def update_pathpoints_display(self, obj):
-    data = self.editable_pathpoints.get(obj)
-    if not data:
-        return
-
-    abs_loc = self.get_property(obj, "AbsoluteLocation") or "(0,0)"
-    angle = float(self.get_property(obj, "Angle") or "0.0")
-    
-    try:
-        x0, y0 = map(float, abs_loc.strip("()").split(","))
-    except:
-        x0, y0 = 0, 0
-
-    rad = math.radians(angle)
-    cos_a, sin_a = math.cos(rad), math.sin(rad)
-
-    def transform(px, py):
-        tx = cos_a * px - sin_a * py + x0
-        ty = sin_a * px + cos_a * py + y0
-        return tx, ty
-
-    points = [transform(x, y) for (x, y) in data["original_points"]]
-
-    self.canvas.delete("pathpoints_line_" + str(id(obj)))
-    for i in range(len(points) - 1):
-        self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2,
-                                tags=("pathpoints", "pathpoints_line_" + str(id(obj))))
-
-    for dot_id, (x, y) in zip(data["dots"], points):
+    def draw_editable_dot(self, x, y, on_drag_callback, obj):
         r = 4
-        self.canvas.coords(dot_id, x - r, y - r, x + r, y + r)
+        dot = self.canvas.create_oval(x - r, y - r, x + r, y + r,
+                                      fill='black', outline='white', width=1, tags='pathpoints')
+    
+        def start_drag(event): self._drag_data = {"item": dot, "callback": on_drag_callback}
+        def do_drag(event):
+            new_x, new_y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+            self.canvas.coords(dot, new_x - r, new_y - r, new_x + r, new_y + r)
+            self._drag_data["callback"]((new_x, new_y))
+
+        self.canvas.tag_bind(dot, "<ButtonPress-1>", start_drag)
+        self.canvas.tag_bind(dot, "<B1-Motion>", do_drag)
+
+    def transform_point(self, x, y, tx, ty, angle_deg):
+        angle_rad = math.radians(angle_deg)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+        x_new = x * cos_a - y * sin_a + tx
+        y_new = x * sin_a + y * cos_a + ty
+        return (x_new, y_new)
+
+    def inverse_transform_point(self, x, y, tx, ty, angle_deg):
+        angle_rad = -math.radians(angle_deg)
+        x -= tx
+        y -= ty
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+        x_new = x * cos_a - y * sin_a
+        y_new = x * sin_a + y * cos_a
+        return (x_new, y_new)
+
+    def update_pathpoints_display(self, obj):
+        data = self.editable_pathpoints.get(obj)
+        if not data:
+            return
+
+        abs_loc = self.get_property(obj, "AbsoluteLocation") or "(0,0)"
+        angle = float(self.get_property(obj, "Angle") or "0.0")
+    
+        try:
+            x0, y0 = map(float, abs_loc.strip("()").split(","))
+        except:
+            x0, y0 = 0, 0
+
+        rad = math.radians(angle)
+        cos_a, sin_a = math.cos(rad), math.sin(rad)
+
+        def transform(px, py):
+            tx = cos_a * px - sin_a * py + x0
+            ty = sin_a * px + cos_a * py + y0
+            return tx, ty
+
+        points = [transform(x, y) for (x, y) in data["original_points"]]
+
+        self.canvas.delete("pathpoints_line_" + str(id(obj)))
+        for i in range(len(points) - 1):
+            self.canvas.create_line(*points[i], *points[i + 1], fill='black', width=2,
+                                    tags=("pathpoints", "pathpoints_line_" + str(id(obj))))
+
+        for dot_id, (x, y) in zip(data["dots"], points):
+            r = 4
+            self.canvas.coords(dot_id, x - r, y - r, x + r, y + r)
 
 
 
