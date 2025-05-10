@@ -135,6 +135,7 @@ import popups
 
 import pipe
 import math
+import xml.etree.ElementTree as ET
 
 logging.info(f'wme version: {__version__}')
 logging.info(f'wmwpy version: {wmwpy.__version__}')
@@ -2540,6 +2541,13 @@ class WME(tk.Tk):
                 ignore_errors = True,
                 load_callback = self.updateProgressBar,
             )
+            
+            try:
+                xml_root = ET.parse(xml).getroot()
+                pipe.load_pipe_data_from_xml(xml_root)
+            except Exception:
+                logging.exception('Unable to parse XML for pipe data')
+                
         except:
             logging.exception('Unable to load level')
             self.state = 'enabled'
