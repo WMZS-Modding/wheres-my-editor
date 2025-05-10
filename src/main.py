@@ -2605,8 +2605,7 @@ def savePathPoints(self):
 
     try:
         pathpoints_data = pipe.extract_all_pathpoints(
-            self.level_data,
-            image_folder=self.image_folder
+            self.level_data
         )
 
         file_path = filedialog.asksaveasfilename(
