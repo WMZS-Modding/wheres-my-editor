@@ -2542,8 +2542,7 @@ class WME(tk.Tk):
             )
             
             try:
-                xml_root = ET.parse(xml).getroot()
-                self.level_data = xml_root
+                self.level_data = ET.parse(xml).getroot()
                 pipe.load_pipe_data_from_xml(self.level_data)
             except Exception:
                 logging.exception('Unable to parse XML for pipe data')
