@@ -1,5 +1,3 @@
-import os
-
 TARGET_PIPES = {
     "pipe_new.hs",
     "pipe_new_swampy.hs",
@@ -7,25 +5,39 @@ TARGET_PIPES = {
     "pipe_new_cranky.hs"
 }
 
+PIPE_DATA = {}  # key = filename, value = dict
+
+def load_pipe_data_from_xml(xml_data):
+    """Call in loadLevel to load initial data"""
+    global PIPE_DATA
+    PIPE_DATA.clear()
+
+    for obj in xml_data.findall(".//Object"):
+        filename = _get_property_value(obj, "Filename")
+        if not filename or not any(pipe in filename for pipe in TARGET_PIPES):
+            continue
+
+        PIPE_DATA[filename] = {
+            "AbsoluteLocation": _get_property_value(obj, "AbsoluteLocation", default="(none)"),
+            "Angle": _get_property_value(obj, "Angle", default="0.0"),
+            "PathPoints": "(not generated)"
+        }
+
 def extract_all_pathpoints(xml_data):
+    """Called when the user presses Save PathPoints"""
     output_lines = []
 
     for obj in xml_data.findall(".//Object"):
-        filename_prop = obj.find("./Property[@name='Filename']")
-        if filename_prop is None:
+        filename = _get_property_value(obj, "Filename")
+        if not filename or filename not in PIPE_DATA:
             continue
 
-        filename = filename_prop.get("value", "")
-        if not any(pipe in filename for pipe in TARGET_PIPES):
-            continue
-
-        abs_loc = _get_property_value(obj, "AbsoluteLocation", default="(none)")
-        angle = _get_property_value(obj, "Angle", default="0.0")
+        data = PIPE_DATA[filename]
 
         output_lines.append(f"Object: {filename}")
-        output_lines.append(f"AbsoluteLocation: {abs_loc}")
-        output_lines.append(f"Angle: {angle}")
-        output_lines.append("PathPoints: (not generated)")
+        output_lines.append(f"AbsoluteLocation: {data.get('AbsoluteLocation')}")
+        output_lines.append(f"Angle: {data.get('Angle')}")
+        output_lines.append(f"PathPoints: {data.get('PathPoints')}")
         output_lines.append("")
 
     return "\n".join(output_lines)
