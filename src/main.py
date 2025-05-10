@@ -222,6 +222,7 @@ class WME(tk.Tk):
                         'none': True,
                     },
                     'path': True,
+                    'pathpoints': True,  # Add default setting for pathpoints
                 }
             }
         )
@@ -288,7 +289,7 @@ class WME(tk.Tk):
         self.level : wmwpy.classes.Level = None
         self.game : wmwpy.Game = None
 
-        self.show_pathpoints_var = tk.BooleanVar(value=False)
+        self.show_pathpoints_var = tk.BooleanVar(value=True)  # Set default to True
         self.createMenubar()
         self.createWindow()
         self.objectContextMenu = tk.Menu(self.level_canvas, tearoff = 0)
@@ -2289,8 +2290,8 @@ class WME(tk.Tk):
         self.view_menu['vars']['path'].trace_add('write', lambda *args : self.updateView('path', self.view_menu['vars']['path'].get()))
         self.view_menu['menu'].add_checkbutton(label = 'path', onvalue = True, offvalue = False, variable = self.view_menu['vars']['path'])
 
-        # Add PathPoints toggle
-        self.view_menu['vars']['pathpoints'] = tk.BooleanVar(value=self.show_pathpoints_var.get())
+        # Add PathPoints toggle with default value from settings
+        self.view_menu['vars']['pathpoints'] = tk.BooleanVar(value=self.settings.get('view.pathpoints', True))
         self.view_menu['vars']['pathpoints'].trace_add('write', lambda *args: self.toggle_pathpoints(self.view_menu['vars']['pathpoints'].get()))
         self.view_menu['menu'].add_checkbutton(label='PathPoints', onvalue=True, offvalue=False, variable=self.view_menu['vars']['pathpoints'])
 
@@ -2623,6 +2624,7 @@ class WME(tk.Tk):
 
     def show_editable_pathpoints(self):
         if not self.level_data:
+            logging.warning("No level data available")
             return
 
         self.level_canvas.delete("pathpoints")
@@ -2631,28 +2633,40 @@ class WME(tk.Tk):
         for obj in self.get_pipe_objects():
             val = self.get_property(obj, "PathPoints")
             if not val:
+                logging.debug(f"No PathPoints found for object {obj.get('id', 'unknown')}")
                 continue
 
             abs_loc = self.get_property(obj, "AbsoluteLocation")
             angle = self.get_property(obj, "Angle")
 
-            if not abs_loc or not angle:
+            if not abs_loc:
+                logging.warning(f"No AbsoluteLocation found for object {obj.get('id', 'unknown')}")
+                continue
+            if not angle:
+                logging.warning(f"No Angle found for object {obj.get('id', 'unknown')}")
                 continue
 
             try:
+                # Parse absolute location and angle
                 abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
                 angle = float(angle)
+                
+                # Parse path points
                 points = self.parse_pathpoints(val)
                 if not points:
+                    logging.warning(f"Could not parse PathPoints for object {obj.get('id', 'unknown')}")
                     continue
 
                 # Transform points to canvas coordinates
                 world_points = []
                 for x, y in points:
-                    canvas_x, canvas_y = self.transform_point(x, y, abs_x, abs_y, angle)
-                    # Convert to canvas coordinates
-                    canvas_x = canvas_x * self.scale
-                    canvas_y = canvas_y * self.scale
+                    # First transform from local to world coordinates
+                    world_x, world_y = self.transform_point(x, y, abs_x, abs_y, angle)
+                    
+                    # Then convert to canvas coordinates
+                    canvas_x = world_x * self.scale
+                    canvas_y = -world_y * self.scale  # Note: canvas Y is inverted
+                    
                     world_points.append((canvas_x, canvas_y))
 
                 # Draw lines connecting points
@@ -2665,17 +2679,25 @@ class WME(tk.Tk):
                         )
 
                 # Draw dots at each point
-                self.editable_pathpoints[obj] = {"original_points": points, "dots": []}
+                self.editable_pathpoints[obj] = {
+                    "original_points": points,
+                    "dots": [],
+                    "abs_loc": (abs_x, abs_y),
+                    "angle": angle
+                }
+                
                 for i, (x, y) in enumerate(world_points):
                     dot_id = self.draw_editable_dot(x, y, lambda new_pos: self.update_path_point(obj, i, new_pos))
                     self.editable_pathpoints[obj]["dots"].append(dot_id)
 
+            except ValueError as e:
+                logging.error(f"Error parsing coordinates for object {obj.get('id', 'unknown')}: {e}")
             except Exception as e:
-                logging.error(f"Error processing path points for object: {e}")
+                logging.error(f"Error processing path points for object {obj.get('id', 'unknown')}: {e}")
 
     def get_pipe_objects(self):
         return [obj for obj in self.level_data.findall(".//Object")
-                if any(pipe in (obj.find("./Property[@name='Filename']") or {}).get("value", "")
+                if any(pipe == (obj.find("./Property[@name='Filename']") or {}).get("value", "")
                        for pipe in pipe.TARGET_PIPES)]
 
     def get_property(self, obj, name):
@@ -2713,56 +2735,91 @@ class WME(tk.Tk):
     def update_path_point(self, obj, point_index, new_pos):
         """Update a path point position and redraw the path"""
         try:
-            # Convert canvas coordinates back to world coordinates
+            # Get stored object data
+            obj_data = self.editable_pathpoints[obj]
+            abs_x, abs_y = obj_data["abs_loc"]
+            angle = obj_data["angle"]
+
+            # Convert canvas coordinates to world coordinates
             world_x = new_pos[0] / self.scale
-            world_y = new_pos[1] / self.scale
-
-            # Get object's current position and angle
-            abs_loc = self.get_property(obj, "AbsoluteLocation")
-            angle = float(self.get_property(obj, "Angle") or "0.0")
-
-            if not abs_loc:
-                return
-
-            abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
+            world_y = -new_pos[1] / self.scale  # Note: canvas Y is inverted
 
             # Convert world coordinates back to local coordinates
             local_x, local_y = self.inverse_transform_point(world_x, world_y, abs_x, abs_y, angle)
 
-            # Update the path points in the XML
-            points = self.editable_pathpoints[obj]["original_points"]
+            # Update the path points
+            points = obj_data["original_points"]
             points[point_index] = (local_x, local_y)
 
             # Update the XML
             prop = obj.find("./Property[@name='PathPoints']")
             if prop is not None:
+                # Format points with 2 decimal places for consistency
                 prop.set("value", ",".join(f"{x:.2f} {y:.2f}" for x, y in points))
+            else:
+                logging.warning(f"PathPoints property not found for object {obj.get('id', 'unknown')}")
 
             # Redraw the path
             self.show_editable_pathpoints()
 
+        except KeyError as e:
+            logging.error(f"Missing data for object: {e}")
+        except ValueError as e:
+            logging.error(f"Invalid coordinate value: {e}")
         except Exception as e:
             logging.error(f"Error updating path point: {e}")
 
     def transform_point(self, x, y, tx, ty, angle_deg):
-        """Transform a point from local to world coordinates"""
+        """
+        Transform a point from local to world coordinates.
+        
+        Args:
+            x, y: Local coordinates relative to the pipe
+            tx, ty: Absolute location of the pipe
+            angle_deg: Rotation angle of the pipe in degrees
+            
+        Returns:
+            tuple: (world_x, world_y) in world coordinates
+        """
         angle_rad = math.radians(angle_deg)
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
-        x_new = x * cos_a - y * sin_a + tx
-        y_new = x * sin_a + y * cos_a + ty
-        return (x_new, y_new)
+        
+        # First rotate the point
+        x_rot = x * cos_a - y * sin_a
+        y_rot = x * sin_a + y * cos_a
+        
+        # Then translate to absolute position
+        world_x = x_rot + tx
+        world_y = y_rot + ty
+        
+        return (world_x, world_y)
 
     def inverse_transform_point(self, x, y, tx, ty, angle_deg):
-        """Transform a point from world to local coordinates"""
-        angle_rad = -math.radians(angle_deg)
+        """
+        Transform a point from world to local coordinates.
+        
+        Args:
+            x, y: World coordinates
+            tx, ty: Absolute location of the pipe
+            angle_deg: Rotation angle of the pipe in degrees
+            
+        Returns:
+            tuple: (local_x, local_y) in local coordinates
+        """
+        # First translate to origin
         x -= tx
         y -= ty
+        
+        # Then rotate back
+        angle_rad = -math.radians(angle_deg)
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
-        x_new = x * cos_a - y * sin_a
-        y_new = x * sin_a + y * cos_a
-        return (x_new, y_new)
+        
+        local_x = x * cos_a - y * sin_a
+        local_y = x * sin_a + y * cos_a
+        
+        return (local_x, local_y)
 
     def update_pathpoints_display(self, obj):
         data = self.editable_pathpoints.get(obj)
