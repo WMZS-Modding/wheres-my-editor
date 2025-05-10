@@ -4,12 +4,12 @@ from typing import Set, Optional
 from xml.etree.ElementTree import Element
 
 # Define target pipe types
-TARGET_PIPES: Set[str] = {
-    "pipe_new.hs",
-    "pipe_new_swampy.hs",
-    "pipe_new_allie.hs",
-    "pipe_new_cranky.hs"
-}
+TARGET_PIPES = [
+    '/Water/Objects/pipe_new.hs',
+    '/Water/Objects/pipe_new_swampy.hs',
+    '/Water/Objects/pipe_new_allie.hs',
+    '/Water/Objects/pipe_new_cranky.hs'
+]
 
 def load_pipe_data_from_xml(xml_data: Element) -> None:
     """
