@@ -121,7 +121,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import tkwidgets
 from PIL import Image, ImageTk, ImageDraw
-from settings import Settings
 from lxml import etree
 import numpy
 import typing
@@ -132,10 +131,10 @@ import webbrowser
 import wmwpy
 from scrollframe import ScrollFrame
 import popups
-
+from settings import Settings
 import pipe
-import math
 import xml.etree.ElementTree as ET
+import math
 
 logging.info(f'wme version: {__version__}')
 logging.info(f'wmwpy version: {wmwpy.__version__}')
@@ -2544,7 +2543,8 @@ class WME(tk.Tk):
             
             try:
                 xml_root = ET.parse(xml).getroot()
-                pipe.load_pipe_data_from_xml(xml_root)
+                self.level_data = xml_root
+                pipe.load_pipe_data_from_xml(self.level_data)
             except Exception:
                 logging.exception('Unable to parse XML for pipe data')
                 
