@@ -2724,9 +2724,13 @@ class WME(tk.Tk):
                 logging.error(f"Error processing path points for object {obj.get('id', 'unknown')}: {e}")
 
     def get_pipe_objects(self):
+        """Get all pipe objects from the level data.
+        
+        Returns:
+            List of pipe objects
+        """
         return [obj for obj in self.level_data.findall(".//Object")
-                if any(pipe == (obj.find("./Property[@name='Filename']") or {}).get("value", "")
-                       for pipe in pipe.TARGET_PIPES)]
+                if pipe.is_pipe_object(obj)]
 
     def get_property(self, obj, name):
         prop = obj.find(f"./Property[@name='{name}']")
