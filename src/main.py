@@ -2636,57 +2636,44 @@ class WME(tk.Tk):
                 logging.debug(f"No PathPoints found for object {obj.get('id', 'unknown')}")
                 continue
 
-            abs_loc = self.get_property(obj, "AbsoluteLocation")
-            angle = self.get_property(obj, "Angle")
-
-            if not abs_loc:
-                logging.warning(f"No AbsoluteLocation found for object {obj.get('id', 'unknown')}")
-                continue
-            if not angle:
-                logging.warning(f"No Angle found for object {obj.get('id', 'unknown')}")
-                continue
-
             try:
-                # Parse absolute location and angle
-                abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
-                angle = float(angle)
-                
                 # Parse path points
                 points = self.parse_pathpoints(val)
                 if not points:
                     logging.warning(f"Could not parse PathPoints for object {obj.get('id', 'unknown')}")
                     continue
 
+                # Get object position and offset
+                abs_loc = self.get_property(obj, "AbsoluteLocation")
+                if not abs_loc:
+                    abs_loc = "(0,0)"
+                abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
+                
                 # Transform points to canvas coordinates
-                world_points = []
+                path_canvas_points = []
                 for x, y in points:
-                    # First transform from local to world coordinates
-                    world_x, world_y = self.transform_point(x, y, abs_x, abs_y, angle)
-                    
-                    # Then convert to canvas coordinates
-                    canvas_x = world_x * self.scale
-                    canvas_y = -world_y * self.scale  # Note: canvas Y is inverted
-                    
-                    world_points.append((canvas_x, canvas_y))
+                    # Convert to canvas coordinates similar to PathPos
+                    path_pos = numpy.array((x, y))
+                    global_pos = self.toLevelCanvasCoord((abs_x, abs_y)) + self.toLevelCanvasCoord(path_pos, 1)
+                    path_canvas_points.append(tuple(global_pos))
 
                 # Draw lines connecting points
-                if len(world_points) > 1:
-                    for i in range(len(world_points) - 1):
+                if len(path_canvas_points) > 1:
+                    for i in range(len(path_canvas_points) - 1):
                         self.level_canvas.create_line(
-                            world_points[i][0], world_points[i][1],
-                            world_points[i+1][0], world_points[i+1][1],
+                            path_canvas_points[i][0], path_canvas_points[i][1],
+                            path_canvas_points[i+1][0], path_canvas_points[i+1][1],
                             fill='black', width=2, tags='pathpoints'
                         )
 
-                # Draw dots at each point
+                # Store original points and create editable dots
                 self.editable_pathpoints[obj] = {
                     "original_points": points,
                     "dots": [],
-                    "abs_loc": (abs_x, abs_y),
-                    "angle": angle
+                    "abs_loc": (abs_x, abs_y)
                 }
                 
-                for i, (x, y) in enumerate(world_points):
+                for i, (x, y) in enumerate(path_canvas_points):
                     dot_id = self.draw_editable_dot(x, y, lambda new_pos: self.update_path_point(obj, i, new_pos))
                     self.editable_pathpoints[obj]["dots"].append(dot_id)
 
@@ -2738,18 +2725,14 @@ class WME(tk.Tk):
             # Get stored object data
             obj_data = self.editable_pathpoints[obj]
             abs_x, abs_y = obj_data["abs_loc"]
-            angle = obj_data["angle"]
 
-            # Convert canvas coordinates to world coordinates
-            world_x = new_pos[0] / self.scale
-            world_y = -new_pos[1] / self.scale  # Note: canvas Y is inverted
-
-            # Convert world coordinates back to local coordinates
-            local_x, local_y = self.inverse_transform_point(world_x, world_y, abs_x, abs_y, angle)
+            # Convert canvas coordinates back to world coordinates
+            world_pos = self.windowPosToWMWPos(new_pos)
+            local_pos = world_pos - numpy.array((abs_x, abs_y))
 
             # Update the path points
             points = obj_data["original_points"]
-            points[point_index] = (local_x, local_y)
+            points[point_index] = tuple(local_pos)
 
             # Update the XML
             prop = obj.find("./Property[@name='PathPoints']")
@@ -2769,87 +2752,34 @@ class WME(tk.Tk):
         except Exception as e:
             logging.error(f"Error updating path point: {e}")
 
-    def transform_point(self, x, y, tx, ty, angle_deg):
-        """
-        Transform a point from local to world coordinates.
-        
-        Args:
-            x, y: Local coordinates relative to the pipe
-            tx, ty: Absolute location of the pipe
-            angle_deg: Rotation angle of the pipe in degrees
-            
-        Returns:
-            tuple: (world_x, world_y) in world coordinates
-        """
-        angle_rad = math.radians(angle_deg)
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-        
-        # First rotate the point
-        x_rot = x * cos_a - y * sin_a
-        y_rot = x * sin_a + y * cos_a
-        
-        # Then translate to absolute position
-        world_x = x_rot + tx
-        world_y = y_rot + ty
-        
-        return (world_x, world_y)
-
-    def inverse_transform_point(self, x, y, tx, ty, angle_deg):
-        """
-        Transform a point from world to local coordinates.
-        
-        Args:
-            x, y: World coordinates
-            tx, ty: Absolute location of the pipe
-            angle_deg: Rotation angle of the pipe in degrees
-            
-        Returns:
-            tuple: (local_x, local_y) in local coordinates
-        """
-        # First translate to origin
-        x -= tx
-        y -= ty
-        
-        # Then rotate back
-        angle_rad = -math.radians(angle_deg)
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-        
-        local_x = x * cos_a - y * sin_a
-        local_y = x * sin_a + y * cos_a
-        
-        return (local_x, local_y)
-
     def update_pathpoints_display(self, obj):
         data = self.editable_pathpoints.get(obj)
         if not data:
             return
 
-        abs_loc = self.get_property(obj, "AbsoluteLocation") or "(0,0)"
-        angle = float(self.get_property(obj, "Angle") or "0.0")
-    
-        try:
-            x0, y0 = map(float, abs_loc.strip("()").split(","))
-        except:
-            x0, y0 = 0, 0
+        abs_x, abs_y = data["abs_loc"]
+        points = data["original_points"]
 
-        rad = math.radians(angle)
-        cos_a, sin_a = math.cos(rad), math.sin(rad)
+        # Transform points to canvas coordinates
+        path_canvas_points = []
+        for x, y in points:
+            path_pos = numpy.array((x, y))
+            global_pos = self.toLevelCanvasCoord((abs_x, abs_y)) + self.toLevelCanvasCoord(path_pos, 1)
+            path_canvas_points.append(tuple(global_pos))
 
-        def transform(px, py):
-            tx = cos_a * px - sin_a * py + x0
-            ty = sin_a * px + cos_a * py + y0
-            return tx, ty
-
-        points = [transform(x, y) for (x, y) in data["original_points"]]
-
+        # Update lines
         self.level_canvas.delete("pathpoints_line_" + str(id(obj)))
-        for i in range(len(points) - 1):
-            self.level_canvas.create_line(*points[i], *points[i + 1], fill='black', width=2,
-                                    tags=("pathpoints", "pathpoints_line_" + str(id(obj))))
+        if len(path_canvas_points) > 1:
+            for i in range(len(path_canvas_points) - 1):
+                self.level_canvas.create_line(
+                    path_canvas_points[i][0], path_canvas_points[i][1],
+                    path_canvas_points[i+1][0], path_canvas_points[i+1][1],
+                    fill='black', width=2,
+                    tags=("pathpoints", "pathpoints_line_" + str(id(obj)))
+                )
 
-        for dot_id, (x, y) in zip(data["dots"], points):
+        # Update dots
+        for dot_id, (x, y) in zip(data["dots"], path_canvas_points):
             r = 4
             self.level_canvas.coords(dot_id, x - r, y - r, x + r, y + r)
 
