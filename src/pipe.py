@@ -20,6 +20,7 @@ class PathPoints:
         points (List[Tuple[float, float]]): List of path points
         is_global (bool): Whether points are in global coordinates
         is_closed (bool): Whether the path is closed
+        filename (str): The object's filename
     """
     def __init__(self, xml_data: Optional[Element] = None):
         """Initialize PathPoints from XML data.
@@ -30,6 +31,7 @@ class PathPoints:
         self.points: List[Tuple[float, float]] = []
         self.is_global: bool = False
         self.is_closed: bool = False
+        self.filename: str = ""
         
         if xml_data is not None:
             self.readXML(xml_data)
@@ -41,6 +43,11 @@ class PathPoints:
             xml_data: XML element containing PathPoints data
         """
         try:
+            # Get object filename
+            filename_prop = xml_data.find("./Property[@name='Filename']")
+            if filename_prop is not None:
+                self.filename = filename_prop.get("value", "")
+            
             # Get PathPoints property
             path_points = self._get_property_value(xml_data, "PathPoints")
             if path_points:
@@ -88,6 +95,10 @@ class PathPoints:
             XML element containing PathPoints data
         """
         xml = etree.Element("Properties")
+        
+        # Add Filename property
+        if self.filename:
+            etree.SubElement(xml, "Property", name="Filename", value=self.filename)
         
         # Add PathPoints property
         if self.points:
