@@ -5,13 +5,29 @@ from typing import List, Tuple, Optional, Dict
 from xml.etree.ElementTree import Element
 from lxml import etree
 
-# Define target pipe types
-TARGET_PIPES = [
-    '/Water/Objects/pipe_new.hs',
-    '/Water/Objects/pipe_new_swampy.hs',
-    '/Water/Objects/pipe_new_allie.hs',
-    '/Water/Objects/pipe_new_cranky.hs'
-]
+def is_pipe_object(obj: Element) -> bool:
+    """Check if an object is a pipe based on its properties.
+    
+    Args:
+        obj: XML element representing an object
+        
+    Returns:
+        True if the object is a pipe, False otherwise
+    """
+    try:
+        # Check if object has PathPoints property
+        has_pathpoints = obj.find("./Property[@name='PathPoints']") is not None
+        
+        # Check if object has pipe-related properties
+        has_pipe_props = any(
+            obj.find(f"./Property[@name='{prop}']") is not None
+            for prop in ['PathIsGlobal', 'PathIsClosed']
+        )
+        
+        return has_pathpoints and has_pipe_props
+    except Exception as e:
+        logging.error(f"Error checking if object is pipe: {e}")
+        return False
 
 class PathPoints:
     """Class to handle PathPoints data similar to wmwpy's Object class handling of PathPos.
@@ -171,15 +187,12 @@ def extract_all_pathpoints(xml_data: Element) -> str:
         output_lines = []
         
         for obj in xml_data.findall(".//Object"):
-            filename = _get_property_value(obj, "Filename")
-            shortname = os.path.basename(filename) if filename else ""
-            
-            if not shortname or shortname not in TARGET_PIPES:
+            if not is_pipe_object(obj):
                 continue
             
             path_points = PathPoints(obj)
             
-            output_lines.append(f"Object: {shortname}")
+            output_lines.append(f"Object: {os.path.basename(path_points.filename)}")
             output_lines.append(f"AbsoluteLocation: {_get_property_value(obj, 'AbsoluteLocation', default='(none)')}")
             output_lines.append(f"Angle: {_get_property_value(obj, 'Angle', default='0.0')}")
             output_lines.append(f"PathPoints: {','.join(f'({x},{y})' for x, y in path_points.points)}")
