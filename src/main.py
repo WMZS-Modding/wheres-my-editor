@@ -858,6 +858,7 @@ class WME(tk.Tk):
         
         self.level_canvas.delete(f'radius&&{id}')
         self.level_canvas.delete(f'path&&{id}')
+        self.level_canvas.delete(f'pathpoints&&{id}')
         
         if len(items) > 0:
             if background:
@@ -962,7 +963,6 @@ class WME(tk.Tk):
                     if is_global:
                         global_pos = self.toLevelCanvasCoord(path_pos)
                     else:
-                        # global_pos = self.getObjectPosition(obj.pos) + path_pos
                         global_pos = self.toLevelCanvasCoord(obj.pos) + self.toLevelCanvasCoord(path_pos, 1)
                     
                     path_canvas_points.append(tuple(global_pos))
@@ -999,13 +999,54 @@ class WME(tk.Tk):
                 
                 # self.level_canvas.tag_bind(line, '<Button-1>', self.onLevelClick)
         
-        # logging.info(f"id: {id}")
-        # logging.info(f"pos: {pos}\n")
+        # Add PathPoints drawing here
+        if (obj == self.selectedObject or self.settings.get('view.pathpoints', True)):
+            val = self.get_property(obj.xml, "PathPoints")
+            if val:
+                try:
+                    points = self.parse_pathpoints(val)
+                    if points:
+                        abs_loc = self.get_property(obj.xml, "AbsoluteLocation")
+                        if not abs_loc:
+                            abs_loc = "(0,0)"
+                        abs_x, abs_y = map(float, abs_loc.strip("()").split(","))
+                        
+                        path_canvas_points = []
+                        for x, y in points:
+                            path_pos = numpy.array((x, y))
+                            global_pos = self.toLevelCanvasCoord((abs_x, abs_y)) + self.toLevelCanvasCoord(path_pos, 1)
+                            path_canvas_points.append(tuple(global_pos))
+
+                        if len(path_canvas_points) > 1:
+                            for i in range(len(path_canvas_points) - 1):
+                                self.level_canvas.create_line(
+                                    path_canvas_points[i][0], path_canvas_points[i][1],
+                                    path_canvas_points[i+1][0], path_canvas_points[i+1][1],
+                                    fill='black', width=2, tags=('pathpoints', id)
+                                )
+
+                        if obj == self.selectedObject:
+                            if not hasattr(self, 'editable_pathpoints'):
+                                self.editable_pathpoints = {}
+                            
+                            self.editable_pathpoints[obj] = {
+                                "original_points": points,
+                                "dots": [],
+                                "abs_loc": (abs_x, abs_y)
+                            }
+                            
+                            for i, (x, y) in enumerate(path_canvas_points):
+                                dot_id = self.draw_editable_dot(x, y, lambda new_pos: self.update_path_point(obj, i, new_pos))
+                                self.editable_pathpoints[obj]["dots"].append(dot_id)
+
+                except ValueError as e:
+                    logging.error(f"Error parsing coordinates for object {obj.get('id', 'unknown')}: {e}")
+                except Exception as e:
+                    logging.error(f"Error processing path points for object {obj.get('id', 'unknown')}: {e}")
         
         self.updateLayers()
         
         self.bindObject(f'object&&{id}', obj)
-        
         
         self.updateSelectionRectangle()
         self.updateLevelScroll()
