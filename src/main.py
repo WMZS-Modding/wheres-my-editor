@@ -2724,7 +2724,7 @@ class WME(tk.Tk):
                         self.level_canvas.create_line(
                             path_canvas_points[i][0], path_canvas_points[i][1],
                             path_canvas_points[i+1][0], path_canvas_points[i+1][1],
-                            fill='black', width=2, tags='pathpoints'
+                            fill='black', width=2, tags=('pathpoints', f'pathpoints_line_{obj.get("id", "unknown")}')
                         )
 
                 # Store original points and create editable dots
@@ -2833,14 +2833,14 @@ class WME(tk.Tk):
             path_canvas_points.append(tuple(global_pos))
 
         # Update lines
-        self.level_canvas.delete("pathpoints_line_" + str(id(obj)))
+        self.level_canvas.delete(f"pathpoints_line_{obj.get('id', 'unknown')}")
         if len(path_canvas_points) > 1:
             for i in range(len(path_canvas_points) - 1):
                 self.level_canvas.create_line(
                     path_canvas_points[i][0], path_canvas_points[i][1],
                     path_canvas_points[i+1][0], path_canvas_points[i+1][1],
                     fill='black', width=2,
-                    tags=("pathpoints", "pathpoints_line_" + str(id(obj)))
+                    tags=("pathpoints", f"pathpoints_line_{obj.get('id', 'unknown')}")
                 )
 
         # Update dots
