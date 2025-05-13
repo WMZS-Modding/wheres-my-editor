@@ -43,10 +43,7 @@ def createLogger(
     format = '[%(levelname)s] %(message)s'
     datefmt = '%I:%M:%S %p'
     level = logging.DEBUG if debug else logging.INFO
-    # level = logging.CRITICAL
 
-    # filename = 'log.log'
-    
     handlers = []
 
     if type == 'file':
@@ -57,15 +54,38 @@ def createLogger(
         
         handlers.append(logging.FileHandler(filename))
         format = '[%(asctime)s] [%(levelname)s] %(message)s'
-
-        # logging.basicConfig(filename=filename, filemode='w', format=format, datefmt=datefmt, level=level)
-        # logger.info('logging file')
     
     handlers.append(logging.StreamHandler())
     logging.basicConfig(format=format, datefmt=datefmt, level=level, handlers=handlers)
     
     logger = logging.getLogger(__name__)
     logger.info(filename)
+
+# Add this function to get the correct path for pipe.py
+def get_pipe_module():
+    if getattr(sys, 'frozen', False):
+        # Running in a PyInstaller bundle
+        base_path = sys._MEIPASS
+    else:
+        # Running in normal Python environment
+        base_path = os.path.dirname(__file__)
+    
+    pipe_path = os.path.join(base_path, 'pipe.py')
+    if os.path.exists(pipe_path):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("pipe", pipe_path)
+        pipe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pipe)
+        return pipe
+    else:
+        logging.error(f"Could not find pipe.py at {pipe_path}")
+        return None
+
+# Import pipe module using the new function
+pipe = get_pipe_module()
+if pipe is None:
+    logging.error("Failed to load pipe module")
+    sys.exit(1)
 
 def setup_logger(
     name: str,
