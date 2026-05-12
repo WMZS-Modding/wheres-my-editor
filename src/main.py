@@ -998,7 +998,10 @@ class WME(tk.Tk):
 
             while t < max_iterations:
                 x = particle_origin[0] + vx * t
-                y = particle_origin[1] + vy * t - 0.5 * gravity * t * t
+                if fluid_type == 'steam':
+                    y = particle_origin[1] + vy * t + 0.5 * gravity * t**2
+                else:
+                    y = particle_origin[1] + vy * t - 0.5 * gravity * t**2
 
                 canvas_x = (x * self.OBJECT_MULTIPLIER) * self.level.scale
                 canvas_y = (y * -self.OBJECT_MULTIPLIER) * self.level.scale
