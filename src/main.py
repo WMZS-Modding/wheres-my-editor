@@ -184,7 +184,7 @@ class WME(tk.Tk):
 
         self.scale = 5
         self.settings = Settings(
-            filename = 'settings.json',
+            filename = os.path.join(os.path.dirname(__file__), 'settings.json'),
             default_settings = {
                 'version': 2,
                 'game': {
@@ -880,57 +880,92 @@ class WME(tk.Tk):
         self.updateSelectionRectangle()
         self.updateLevelScroll()
 
-    def _updateParticleTrajectories(self):
+    def _updateParticleTrajectories(self, specific_obj=None):
         trajectory_enabled = self.settings.get('view.particleTrajectory', False)
+        # Always delete canvas items to properly clear visualization when disabled
+        self.level_canvas.delete('particleTrajectory')
+        self.level_canvas.delete('offsetVariation')
+        self.level_canvas.delete('angleVariation')
+        self.level_canvas.delete('particleVariation')
+        self.level_canvas.delete('particleOffset')
         if trajectory_enabled:
-            self.level_canvas.delete('particleTrajectory')
-            self.level_canvas.delete('offsetVariation')
-            self.level_canvas.delete('angleVariation')
-            self.level_canvas.delete('particleVariation')
-            self.level_canvas.delete('particleOffset')
-            for obj in self.level.objects:
-                if obj.properties and 'ParticleSpeed' in obj.properties:
+            # If specific_obj is provided, only check that object
+            objects_to_check = [specific_obj] if specific_obj else self.level.objects
+
+            for obj in objects_to_check:
+                # Skip ice objects (identified by TemperatureType=cold or ObjectType=icicle)
+                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                    if obj.defaultProperties.get('TemperatureType') == 'cold' or 'icicle' in obj.defaultProperties.get('ObjectType', '').lower():
+                        continue
+
+                # Check if object is a spout by checking for particle-related properties in defaultProperties
+                is_spout = False
+                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                    # Check for properties that indicate this is a spout
+                    spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
+                    for prop in spout_indicators:
+                        if prop in obj.defaultProperties:
+                            is_spout = True
+                            break
+
+                if is_spout:
                     canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
                     obj_id = f'object-{str(obj.id)}'
                     self._drawParticleTrajectory(obj, canvas_pos, obj_id)
 
     def _updateVacuum(self):
         vacuum_enabled = self.settings.get('view.vacuum', False)
+        # Always delete canvas items to properly clear visualization when disabled
+        self.level_canvas.delete('drainAngleVariation')
+        self.level_canvas.delete('vacuumAngles')
+        self.level_canvas.delete('vacuumForces')
+        self.level_canvas.delete('vacuumMaxD')
+        self.level_canvas.delete('vacuumFriction')
         if vacuum_enabled:
-            self.level_canvas.delete('drainAngleVariation')
-            self.level_canvas.delete('vacuumAngles')
-            self.level_canvas.delete('vacuumForces')
-            self.level_canvas.delete('vacuumMaxD')
-            self.level_canvas.delete('vacuumFriction')
             for obj in self.level.objects:
-                if obj.properties and 'VacuumForce' in obj.properties:
+                # Check if VacuumForce is explicitly set or if object type has default VacuumForce
+                has_vacuum_force = (obj.properties and 'VacuumForce' in obj.properties) or (obj.Type and 'VacuumForce' in obj.Type.PROPERTIES)
+                if has_vacuum_force:
                     canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
                     obj_id = f'object-{str(obj.id)}'
                     self._drawDrainVisualizations(obj, canvas_pos, obj_id)
 
     def _drawParticleTrajectory(self, obj, canvas_pos, id):
         try:
-            if not obj.properties:
-                return
-            if 'ParticleSpeed' not in obj.properties:
-                return
+            # Merge defaultProperties with obj.properties (defaultProperties override)
+            properties = dict(obj.properties) if obj.properties else {}
+            if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                for prop_name, prop_value in obj.defaultProperties.items():
+                    if prop_name not in properties:
+                        properties[prop_name] = prop_value
 
-            particle_speed = float(obj.properties.get('ParticleSpeed', 1))
+            # Get ParticleSpeed from merged properties or use default from object type
+            particle_speed = None
+            if 'ParticleSpeed' in properties:
+                particle_speed = float(properties.get('ParticleSpeed', 1))
+            elif obj.Type and 'ParticleSpeed' in obj.Type.PROPERTIES:
+                default_prop = obj.Type.PROPERTIES['ParticleSpeed']
+                if 'default' in default_prop:
+                    particle_speed = float(default_prop['default'])
+
+            if particle_speed is None:
+                return
 
             spout_pos = numpy.array(obj.pos)
-            spout_angle = float(obj.properties.get('Angle', 0))
-            expulsion_angle = float(obj.properties.get('ExpulsionAngle', 0))
+
+            spout_angle = float(properties.get('Angle', 0))
+            expulsion_angle = float(properties.get('ExpulsionAngle', 0))
             total_angle = spout_angle + expulsion_angle
 
-            fluid_type = obj.properties.get('FluidType', 'water').lower()
+            fluid_type = properties.get('FluidType', 'water').lower()
             trajectory_color = self._getFluidTypeColor(fluid_type)
 
-            offset_variation = float(obj.properties.get('OffsetVariation', 0))
-            angle_variation = float(obj.properties.get('ExpulsionAngleVariation', 0))
-            particle_variation = float(obj.properties.get('ParticleVariation', 0))
-            particle_offset = obj.properties.get('ParticleOffset', '0 0')
+            offset_variation = float(properties.get('OffsetVariation', 0))
+            angle_variation = float(properties.get('ExpulsionAngleVariation', 0))
+            particle_variation = float(properties.get('ParticleVariation', 0))
+            particle_offset = properties.get('ParticleOffset', '0 0')
 
-            offset_to_mouth = obj.properties.get('OffsetToMouth', None)
+            offset_to_mouth = properties.get('OffsetToMouth', None)
 
             if offset_to_mouth is None and hasattr(obj, 'filename') and obj.filename:
                 hs_filename = obj.filename
@@ -960,11 +995,12 @@ class WME(tk.Tk):
                                 content = f.read()
                             import xml.etree.ElementTree as ET
                             root = ET.fromstring(content)
-                            for prop in root.findall('.//Property[@name="OffsetToMouth"]'):
-                                value = prop.get('value')
-                                if value:
-                                    offset_to_mouth = value
-                                    break
+                            if offset_to_mouth is None:
+                                for prop in root.findall('.//Property[@name="OffsetToMouth"]'):
+                                    value = prop.get('value')
+                                    if value:
+                                        offset_to_mouth = value
+                                        break
                             if offset_to_mouth:
                                 break
                         except Exception as e:
@@ -1122,45 +1158,63 @@ class WME(tk.Tk):
             if not obj.properties:
                 return
 
-            spout_type = obj.properties.get('SpoutType', '')
-            if spout_type not in ['Drain', 'DrainSpout']:
+            # Merge defaultProperties with obj.properties (defaultProperties override)
+            properties = dict(obj.properties) if obj.properties else {}
+            if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                for prop_name, prop_value in obj.defaultProperties.items():
+                    if prop_name not in properties:
+                        properties[prop_name] = prop_value
+
+            spout_type = properties.get('SpoutType', None)
+            fan_type = properties.get('FanType', None)
+
+            # Use defaults if still None
+            if spout_type is None:
+                spout_type = 'spout'
+            if fan_type is None:
+                fan_type = 'fan'
+
+            if spout_type not in ['Drain', 'DrainSpout'] and fan_type != 'fan':
                 return
 
-            angle_variation = float(obj.properties.get('AngleVariation', 0))
-            vacuum_base_angle = float(obj.properties.get('VacuumBaseAngle', 0))
-            vacuum_min_angle = float(obj.properties.get('VacuumMinAngle', 0))
-            vacuum_max_angle = float(obj.properties.get('VacuumMaxAngle', 0))
-            vacuum_force = float(obj.properties.get('VacuumForce', 0))
-            vacuum_max_force = float(obj.properties.get('VacuumMaxForce', 0))
-            vacuum_max_d = float(obj.properties.get('VacuumMaxD', 0))
-            vacuum_friction = float(obj.properties.get('VacuumFriction', 0))
+            # Get object's rotation angle (negate to fix flip)
+            obj_angle = -float(properties.get('Angle', 0))
+
+            angle_variation = float(properties.get('AngleVariation', 0))
+            vacuum_base_angle = float(properties.get('VacuumBaseAngle', 0))
+            vacuum_min_angle = float(properties.get('VacuumMinAngle', 0))
+            vacuum_max_angle = float(properties.get('VacuumMaxAngle', 0))
+            vacuum_force = float(properties.get('VacuumForce', 0))
+            vacuum_max_force = float(properties.get('VacuumMaxForce', 0))
+            vacuum_max_d = float(properties.get('VacuumMaxD', 0))
+            vacuum_friction = float(properties.get('VacuumFriction', 0))
 
             if angle_variation > 0:
-                self._drawDrainAngleVariation(obj, canvas_pos, angle_variation, id)
+                self._drawDrainAngleVariation(obj, canvas_pos, angle_variation, obj_angle, id)
 
             if vacuum_base_angle != 0 or vacuum_min_angle != 0 or vacuum_max_angle != 0:
-                self._drawVacuumAngles(obj, canvas_pos, vacuum_base_angle, vacuum_min_angle, vacuum_max_angle, id)
+                self._drawVacuumAngles(obj, canvas_pos, vacuum_base_angle, vacuum_min_angle, vacuum_max_angle, obj_angle, id)
 
             if vacuum_force > 0 or vacuum_max_force > 0:
-                self._drawVacuumForces(obj, canvas_pos, vacuum_force, vacuum_max_force, id)
+                self._drawVacuumForces(obj, canvas_pos, vacuum_force, vacuum_max_force, obj_angle, id)
 
             if vacuum_max_d > 0:
-                self._drawVacuumMaxD(obj, canvas_pos, vacuum_max_d, id)
+                self._drawVacuumMaxD(obj, canvas_pos, vacuum_max_d, obj_angle, id)
 
             if vacuum_friction > 0:
-                self._drawVacuumFriction(obj, canvas_pos, vacuum_friction, id)
+                self._drawVacuumFriction(obj, canvas_pos, vacuum_friction, obj_angle, id)
         except Exception as e:
             pass
 
-    def _drawDrainAngleVariation(self, obj, origin, variation, id):
+    def _drawDrainAngleVariation(self, obj, origin, variation, obj_angle, id):
         variation_deg = variation
         if variation_deg < 5:
             variation_deg = 5
 
         arrow_length = 30
 
-        start_angle = -variation_deg
-        end_angle = variation_deg
+        start_angle = -variation_deg + obj_angle
+        end_angle = variation_deg + obj_angle
 
         for angle in [start_angle, end_angle]:
             angle_rad = numpy.radians(angle)
@@ -1180,41 +1234,56 @@ class WME(tk.Tk):
 
             self.level_canvas.create_polygon(end_x, end_y, arrow_x1, arrow_y1, arrow_x2, arrow_y2, fill='white', outline='white', tags=('passthrough', 'part', 'drainAngleVariation', f'drainAngleVariation&&{id}'))
 
-    def _drawVacuumAngles(self, obj, origin, base_angle, min_angle, max_angle, id):
+    def _drawVacuumAngles(self, obj, origin, base_angle, min_angle, max_angle, obj_angle, id):
         arrow_length = 25
 
         if base_angle != 0:
-            angle_rad = numpy.radians(base_angle)
+            angle_rad = numpy.radians(base_angle + obj_angle)
             end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
             end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
             self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='blue', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
 
         if min_angle != 0:
-            angle_rad = numpy.radians(min_angle)
+            angle_rad = numpy.radians(min_angle + obj_angle)
             end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
             end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
             self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='green', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
 
         if max_angle != 0:
-            angle_rad = numpy.radians(max_angle)
+            angle_rad = numpy.radians(max_angle + obj_angle)
             end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
             end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
             self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='red', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
 
-    def _drawVacuumForces(self, obj, origin, force, max_force, id):
+    def _drawVacuumForces(self, obj, origin, force, max_force, obj_angle, id):
+        angle_rad = numpy.radians(obj_angle)
+        cos_angle = numpy.cos(angle_rad)
+        sin_angle = numpy.sin(angle_rad)
+
         if force > 0:
             line_length = (force * 5) / 2
-            self.level_canvas.create_line(origin[0] - line_length, origin[1], origin[0] + line_length, origin[1], fill='red', width=3, tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+            x1 = origin[0] - line_length * cos_angle
+            y1 = origin[1] - line_length * sin_angle
+            x2 = origin[0] + line_length * cos_angle
+            y2 = origin[1] + line_length * sin_angle
+            self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=3, tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
 
         if max_force > 0:
             line_length = (max_force * 5) / 2
-            self.level_canvas.create_line(origin[0] - line_length, origin[1], origin[0] + line_length, origin[1], fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+            x1 = origin[0] - line_length * cos_angle
+            y1 = origin[1] - line_length * sin_angle
+            x2 = origin[0] + line_length * cos_angle
+            y2 = origin[1] + line_length * sin_angle
+            self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
 
-    def _drawVacuumMaxD(self, obj, origin, max_d, id):
+    def _drawVacuumMaxD(self, obj, origin, max_d, obj_angle, id):
         line_length = max_d * 5
-        self.level_canvas.create_line(origin[0], origin[1], origin[0], origin[1] - line_length, fill='black', width=2, tags=('passthrough', 'part', 'vacuumMaxD', f'vacuumMaxD&&{id}'))
+        angle_rad = numpy.radians(obj_angle)
+        end_x = origin[0] + line_length * numpy.cos(angle_rad)
+        end_y = origin[1] + line_length * numpy.sin(angle_rad)
+        self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='black', width=2, tags=('passthrough', 'part', 'vacuumMaxD', f'vacuumMaxD&&{id}'))
 
-    def _drawVacuumFriction(self, obj, origin, friction, id):
+    def _drawVacuumFriction(self, obj, origin, friction, obj_angle, id):
         radius = friction * 10
         if radius < 3:
             radius = 3
@@ -1223,10 +1292,10 @@ class WME(tk.Tk):
 
     def _updateParentConnections(self):
         parent_enabled = self.settings.get('view.parent', False)
+        # Always delete canvas items to properly clear visualization when disabled
+        self.level_canvas.delete('parent')
+        self.level_canvas.delete('connectedSpout')
         if parent_enabled:
-            self.level_canvas.delete('parent')
-            self.level_canvas.delete('connectedSpout')
-
             for obj in self.level.objects:
                 canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
                 obj_id = f'object-{str(obj.id)}'
@@ -1583,9 +1652,18 @@ class WME(tk.Tk):
                 index = self.level.objects.index(obj)
                 del self.level.objects[index]
 
-                if obj.properties and any(prop in obj.properties for prop in ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetVariation', 'ExpulsionAngleVariation', 'ParticleVariation', 'ParticleOffset', 'Filename']):
-                    self._updateParticleTrajectories()
-                if obj.properties and any(prop in obj.properties for prop in ['SpoutType', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']):
+                # Check if object is a spout before updating particle trajectories
+                is_spout = False
+                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                    spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
+                    for prop in spout_indicators:
+                        if prop in obj.defaultProperties:
+                            is_spout = True
+                            break
+
+                if is_spout:
+                    self._updateParticleTrajectories(obj)
+                if obj.properties and any(prop in obj.properties for prop in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']):
                     self._updateVacuum()
                 if obj.properties and any(prop in obj.properties for prop in ['Parent', 'ConnectedSpout', 'ConnectedObject']) or any(prop.startswith('ConnectedSpout') for prop in obj.properties) or any(prop.startswith('ConnectedObject') for prop in obj.properties):
                     self._updateParentConnections()
@@ -1884,9 +1962,18 @@ class WME(tk.Tk):
                 del obj.properties[property]
                 if not isLevel:
                     self.updateObject(obj)
-                    if property in ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetVariation', 'ExpulsionAngleVariation', 'ParticleVariation', 'ParticleOffset', 'Filename']:
-                        self._updateParticleTrajectories()
-                    if property in ['SpoutType', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
+                    # Check if object is a spout before updating particle trajectories
+                    is_spout = False
+                    if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                        spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
+                        for prop in spout_indicators:
+                            if prop in obj.defaultProperties:
+                                is_spout = True
+                                break
+
+                    if is_spout:
+                        self._updateParticleTrajectories(obj)
+                    if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
                         self._updateVacuum()
                     if property in ['Parent', 'ConnectedSpout', 'ConnectedObject'] or property.startswith('ConnectedSpout'):
                         self._updateParentConnections()
@@ -1898,9 +1985,18 @@ class WME(tk.Tk):
             obj.properties[property] = value
             if not isLevel:
                 self.updateObject(obj)
-                if property in ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetVariation', 'ExpulsionAngleVariation', 'ParticleVariation', 'ParticleOffset', 'Filename', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
-                    self._updateParticleTrajectories()
-                if property in ['SpoutType', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
+                # Check if object is a spout before updating particle trajectories
+                is_spout = False
+                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                    spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
+                    for prop in spout_indicators:
+                        if prop in obj.defaultProperties:
+                            is_spout = True
+                            break
+
+                if is_spout:
+                    self._updateParticleTrajectories(obj)
+                if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
                     self._updateVacuum()
                 if property in ['Parent', 'ConnectedSpout', 'ConnectedObject'] or property.startswith('ConnectedSpout'):
                     self._updateParentConnections()
@@ -1911,9 +2007,18 @@ class WME(tk.Tk):
 
                 self.updateObject(obj)
                 self.updateProperties(obj)
-                if property in ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetVariation', 'ExpulsionAngleVariation', 'ParticleVariation', 'ParticleOffset', 'Filename', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
-                    self._updateParticleTrajectories()
-                if property in ['SpoutType', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
+                # Check if object is a spout before updating particle trajectories
+                is_spout = False
+                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
+                    spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
+                    for prop in spout_indicators:
+                        if prop in obj.defaultProperties:
+                            is_spout = True
+                            break
+
+                if is_spout:
+                    self._updateParticleTrajectories(obj)
+                if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
                     self._updateVacuum()
                 if property in ['Parent', 'ConnectedSpout', 'ConnectedObject'] or property.startswith('ConnectedSpout'):
                     self._updateParentConnections()
@@ -2273,40 +2378,10 @@ class WME(tk.Tk):
         for obj in self.level.objects:
             self.updateObject(obj)
 
-        trajectory_enabled = self.settings.get('view.particleTrajectory', False)
-        logging.info(f'Particle trajectory view enabled: {trajectory_enabled}')
-        if trajectory_enabled:
-            self.level_canvas.delete('particleTrajectory')
-            logging.info(f'Checking {len(self.level.objects)} objects for ParticleSpeed property')
-            for obj in self.level.objects:
-                logging.info(f'Checking object {obj.name} for ParticleSpeed')
-                if obj.properties and 'ParticleSpeed' in obj.properties:
-                    logging.info(f'Object {obj.name} has ParticleSpeed, drawing trajectory')
-                    canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
-                    obj_id = f'object-{str(obj.id)}'
-                    self._drawParticleTrajectory(obj, canvas_pos, obj_id)
-                else:
-                    logging.info(f'Object {obj.name} does not have ParticleSpeed property')
-
-        vacuum_enabled = self.settings.get('view.vacuum', False)
-        logging.info(f'Vacuum view enabled: {vacuum_enabled}')
-        if vacuum_enabled:
-            self.level_canvas.delete('vacuum')
-            logging.info(f'Checking {len(self.level.objects)} objects for SpoutType property')
-            for obj in self.level.objects:
-                logging.info(f'Checking object {obj.name} for SpoutType')
-                if obj.properties and 'SpoutType' in obj.properties:
-                    logging.info(f'Object {obj.name} has SpoutType, drawing vacuum')
-                    canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
-                    obj_id = f'object-{str(obj.id)}'
-                    self._drawDrainVisualizations(obj, canvas_pos, obj_id)
-                else:
-                    logging.info(f'Object {obj.name} does not have SpoutType property')
-
-        parent_enabled = self.settings.get('view.parent', False)
-        logging.info(f'Parent connections view enabled: {parent_enabled}')
-        if parent_enabled:
-            self._updateParentConnections()
+        # Call the proper update functions that handle both enabling and disabling
+        self._updateParticleTrajectories()
+        self._updateVacuum()
+        self._updateParentConnections()
 
         self.updateLevelScroll()
         self.level_canvas.xview_moveto(0.23)
@@ -2561,15 +2636,15 @@ class WME(tk.Tk):
         self.view_menu['vars']['path'].trace_add('write', lambda *args : self.updateView('path', self.view_menu['vars']['path'].get()))
         self.view_menu['menu'].add_checkbutton(label = 'path', onvalue = True, offvalue = False, variable = self.view_menu['vars']['path'])
 
-        self.view_menu['vars']['particleTrajectory'] = tk.BooleanVar(value = True)
+        self.view_menu['vars']['particleTrajectory'] = tk.BooleanVar(value = self.settings.get('view.particleTrajectory', True))
         self.view_menu['vars']['particleTrajectory'].trace_add('write', lambda *args : self.updateView('particleTrajectory', self.view_menu['vars']['particleTrajectory'].get()))
         self.view_menu['menu'].add_checkbutton(label = 'particle trajectory', onvalue = True, offvalue = False, variable = self.view_menu['vars']['particleTrajectory'])
 
-        self.view_menu['vars']['vacuum'] = tk.BooleanVar(value = True)
+        self.view_menu['vars']['vacuum'] = tk.BooleanVar(value = self.settings.get('view.vacuum', True))
         self.view_menu['vars']['vacuum'].trace_add('write', lambda *args : self.updateView('vacuum', self.view_menu['vars']['vacuum'].get()))
         self.view_menu['menu'].add_checkbutton(label = 'vacuum visualization', onvalue = True, offvalue = False, variable = self.view_menu['vars']['vacuum'])
 
-        self.view_menu['vars']['parent'] = tk.BooleanVar(value = True)
+        self.view_menu['vars']['parent'] = tk.BooleanVar(value = self.settings.get('view.parent', True))
         self.view_menu['vars']['parent'].trace_add('write', lambda *args : self.updateView('parent', self.view_menu['vars']['parent'].get()))
         self.view_menu['menu'].add_checkbutton(label = 'parent connections', onvalue = True, offvalue = False, variable = self.view_menu['vars']['parent'])
 
