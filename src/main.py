@@ -881,6 +881,7 @@ class WME(tk.Tk):
         self.updateLevelScroll()
 
         self._updateParticleTrajectories(obj)
+        self._updateVacuum()
 
     def _updateParticleTrajectories(self, specific_obj=None):
         trajectory_enabled = self.settings.get('view.particleTrajectory', False)
@@ -891,8 +892,8 @@ class WME(tk.Tk):
         self.level_canvas.delete('particleVariation')
         self.level_canvas.delete('particleOffset')
         if trajectory_enabled:
-            # If specific_obj is provided, only check that object
-            objects_to_check = [specific_obj] if specific_obj else self.level.objects
+            # Always redraw all spout objects to ensure trajectories are updated correctly
+            objects_to_check = self.level.objects
 
             for obj in objects_to_check:
                 # Skip ice objects (identified by TemperatureType=cold or ObjectType=icicle)
@@ -1656,8 +1657,7 @@ class WME(tk.Tk):
                 del self.level.objects[index]
 
                 self._updateParticleTrajectories()
-                if obj.properties and any(prop in obj.properties for prop in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']):
-                    self._updateVacuum()
+                self._updateVacuum()
                 self._updateParentConnections()
 
             if obj == self.selectedObject:
