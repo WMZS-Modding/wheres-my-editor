@@ -880,6 +880,8 @@ class WME(tk.Tk):
         self.updateSelectionRectangle()
         self.updateLevelScroll()
 
+        self._updateParticleTrajectories(obj)
+
     def _updateParticleTrajectories(self, specific_obj=None):
         trajectory_enabled = self.settings.get('view.particleTrajectory', False)
         # Always delete canvas items to properly clear visualization when disabled
@@ -1291,15 +1293,15 @@ class WME(tk.Tk):
         self.level_canvas.create_circle(origin[0], origin[1], radius, fill='', outline='orange', width=2, tags=('passthrough', 'part', 'vacuumFriction', f'vacuumFriction&&{id}'))
 
     def _updateParentConnections(self):
-        parent_enabled = self.settings.get('view.parent', False)
         # Always delete canvas items to properly clear visualization when disabled
         self.level_canvas.delete('parent')
         self.level_canvas.delete('connectedSpout')
-        if parent_enabled:
-            for obj in self.level.objects:
-                canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
-                obj_id = f'object-{str(obj.id)}'
-                self._drawParentConnections(obj, canvas_pos, obj_id)
+        # Always redraw lines to ensure they're in correct position when objects change
+        for obj in self.level.objects:
+            canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
+            obj_id = f'object-{str(obj.id)}'
+            self._drawParentConnections(obj, canvas_pos, obj_id)
+        self.updateLayers()
 
     def _drawParentConnections(self, obj, canvas_pos, id):
         try:
@@ -1319,7 +1321,7 @@ class WME(tk.Tk):
                     self._drawParentLine(parent_canvas_pos, canvas_pos, 'Parent', id, parent_obj.id)
 
             for prop_name, prop_value in obj.properties.items():
-                if prop_name.startswith('ConnectedSpout') or prop_name.startswith('ConnectedObject'):
+                if prop_name.startswith('ConnectedSpout') or prop_name.startswith('ConnectedObject') or prop_name.startswith('ConnectedConverter'):
                     connected_obj_name = str(prop_value)
                     if connected_obj_name and connected_obj_name != '0':
                         connected_obj = None
@@ -1341,11 +1343,11 @@ class WME(tk.Tk):
 
     def _drawConnectedSpoutLine(self, from_pos, to_pos, property_name, from_id, to_id):
         connection_num = ''
-        if property_name != 'ConnectedSpout':
+        if property_name != 'ConnectedSpout' and property_name != 'ConnectedObject' and property_name != 'ConnectedConverter':
             import re
-            match = re.match(r'ConnectedSpout(\d+)', property_name)
+            match = re.match(r'(ConnectedSpout|ConnectedObject|ConnectedConverter)(\d+)', property_name)
             if match:
-                connection_num = match.group(1)
+                connection_num = match.group(2)
 
         self.level_canvas.create_line(from_pos[0], from_pos[1], to_pos[0], to_pos[1], fill='green', width=2, tags=('passthrough', 'part', 'connectedSpout', f'connectedSpout&&{from_id}', f'connectedSpout&&{to_id}'))
 
@@ -1624,6 +1626,7 @@ class WME(tk.Tk):
             pos = tuple(obj.pos + amount)
             obj.pos = pos
             self.updateObject(obj)
+            self._updateParentConnections()
 
             if self.selectedObject == obj:
                 if 'pos' in self.objectProperties:
@@ -1652,21 +1655,10 @@ class WME(tk.Tk):
                 index = self.level.objects.index(obj)
                 del self.level.objects[index]
 
-                # Check if object is a spout before updating particle trajectories
-                is_spout = False
-                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
-                    spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
-                    for prop in spout_indicators:
-                        if prop in obj.defaultProperties:
-                            is_spout = True
-                            break
-
-                if is_spout:
-                    self._updateParticleTrajectories(obj)
+                self._updateParticleTrajectories()
                 if obj.properties and any(prop in obj.properties for prop in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']):
                     self._updateVacuum()
-                if obj.properties and any(prop in obj.properties for prop in ['Parent', 'ConnectedSpout', 'ConnectedObject']) or any(prop.startswith('ConnectedSpout') for prop in obj.properties) or any(prop.startswith('ConnectedObject') for prop in obj.properties):
-                    self._updateParentConnections()
+                self._updateParentConnections()
 
             if obj == self.selectedObject:
                 self.selectObject(None)
@@ -1728,6 +1720,7 @@ class WME(tk.Tk):
 
         self.updateObject(obj)
         self.updateObjectSelector()
+        self._updateParentConnections()
 
         return obj
 
@@ -1766,6 +1759,7 @@ class WME(tk.Tk):
 
         self.updateObject(new_obj)
         self.updateObjectSelector()
+        self._updateParentConnections()
         if self.selectedObject == obj:
             self.selectObject(new_obj)
 
@@ -1962,20 +1956,10 @@ class WME(tk.Tk):
                 del obj.properties[property]
                 if not isLevel:
                     self.updateObject(obj)
-                    # Check if object is a spout before updating particle trajectories
-                    is_spout = False
-                    if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
-                        spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
-                        for prop in spout_indicators:
-                            if prop in obj.defaultProperties:
-                                is_spout = True
-                                break
-
-                    if is_spout:
-                        self._updateParticleTrajectories(obj)
+                    self._updateParticleTrajectories()
                     if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
                         self._updateVacuum()
-                    if property in ['Parent', 'ConnectedSpout', 'ConnectedObject'] or property.startswith('ConnectedSpout'):
+                    if property in ['Parent', 'ConnectedSpout', 'ConnectedObject', 'ConnectedConverter'] or property.startswith('ConnectedSpout') or property.startswith('ConnectedObject') or property.startswith('ConnectedConverter'):
                         self._updateParentConnections()
                     self.updateProperties(obj)
                 else:
@@ -1985,20 +1969,10 @@ class WME(tk.Tk):
             obj.properties[property] = value
             if not isLevel:
                 self.updateObject(obj)
-                # Check if object is a spout before updating particle trajectories
-                is_spout = False
-                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
-                    spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
-                    for prop in spout_indicators:
-                        if prop in obj.defaultProperties:
-                            is_spout = True
-                            break
-
-                if is_spout:
-                    self._updateParticleTrajectories(obj)
+                self._updateParticleTrajectories()
                 if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
                     self._updateVacuum()
-                if property in ['Parent', 'ConnectedSpout', 'ConnectedObject'] or property.startswith('ConnectedSpout'):
+                if property in ['Parent', 'ConnectedSpout', 'ConnectedObject', 'ConnectedConverter'] or property.startswith('ConnectedSpout') or property.startswith('ConnectedObject') or property.startswith('ConnectedConverter'):
                     self._updateParentConnections()
 
         def resetProperty(property):
@@ -2007,20 +1981,10 @@ class WME(tk.Tk):
 
                 self.updateObject(obj)
                 self.updateProperties(obj)
-                # Check if object is a spout before updating particle trajectories
-                is_spout = False
-                if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
-                    spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
-                    for prop in spout_indicators:
-                        if prop in obj.defaultProperties:
-                            is_spout = True
-                            break
-
-                if is_spout:
-                    self._updateParticleTrajectories(obj)
+                self._updateParticleTrajectories()
                 if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
                     self._updateVacuum()
-                if property in ['Parent', 'ConnectedSpout', 'ConnectedObject'] or property.startswith('ConnectedSpout'):
+                if property in ['Parent', 'ConnectedSpout', 'ConnectedObject', 'ConnectedConverter'] or property.startswith('ConnectedSpout') or property.startswith('ConnectedObject') or property.startswith('ConnectedConverter'):
                     self._updateParentConnections()
 
         def updatePropertyName(property, newName, skip_unedited = False):
@@ -2061,11 +2025,13 @@ class WME(tk.Tk):
             obj.pos = tuple(pos)
 
             self.updateObject(obj)
+            self._updateParentConnections()
 
         def updateObjectName(name):
             obj.name = name
             self.updateObject(obj)
             self.updateObjectSelector()
+            self._updateParentConnections()
 
         sizes : list[int] = []
 
@@ -2401,6 +2367,7 @@ class WME(tk.Tk):
         obj.pos = self.windowPosToWMWPos(numpy.array((event.x, event.y)) + self.dragInfo['offset'])
 
         self.updateObject(obj)
+        self._updateParentConnections()
 
     def windowPosToWMWPos(self, pos : tuple = (0,0), multiplier: float = OBJECT_MULTIPLIER):
         if isinstance(pos, (int, float)):
