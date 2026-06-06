@@ -880,8 +880,8 @@ class WME(tk.Tk):
         self.updateSelectionRectangle()
         self.updateLevelScroll()
 
-        self._updateParticleTrajectories(obj)
-        self._updateVacuum()
+        # self._updateParticleTrajectories(obj)
+        # self._updateVacuum()
 
     def _updateParticleTrajectories(self, specific_obj=None):
         trajectory_enabled = self.settings.get('view.particleTrajectory', False)
@@ -1192,6 +1192,11 @@ class WME(tk.Tk):
             vacuum_max_d = float(properties.get('VacuumMaxD', 0))
             vacuum_friction = float(properties.get('VacuumFriction', 0))
 
+            vacuum_center_offset_A_str = properties.get('VacuumCenterOffsetA', '0 0')
+            vacuum_center_offset_B_str = properties.get('VacuumCenterOffsetB', '0 0')
+            vacuum_center_offset_A = [float(x) for x in vacuum_center_offset_A_str.split()]
+            vacuum_center_offset_B = [float(x) for x in vacuum_center_offset_B_str.split()]
+
             if angle_variation > 0:
                 self._drawDrainAngleVariation(obj, canvas_pos, angle_variation, obj_angle, id)
 
@@ -1241,19 +1246,19 @@ class WME(tk.Tk):
         arrow_length = 25
 
         if base_angle != 0:
-            angle_rad = numpy.radians(base_angle + obj_angle)
+            angle_rad = numpy.radians(obj_angle - base_angle)
             end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
             end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
             self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='blue', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
 
         if min_angle != 0:
-            angle_rad = numpy.radians(min_angle + obj_angle)
+            angle_rad = numpy.radians(obj_angle - min_angle)
             end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
             end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
             self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='green', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
 
         if max_angle != 0:
-            angle_rad = numpy.radians(max_angle + obj_angle)
+            angle_rad = numpy.radians(obj_angle - max_angle)
             end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
             end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
             self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='red', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
@@ -1265,23 +1270,23 @@ class WME(tk.Tk):
 
         if force > 0:
             line_length = (force * 5) / 2
-            x1 = origin[0] - line_length * cos_angle
-            y1 = origin[1] - line_length * sin_angle
-            x2 = origin[0] + line_length * cos_angle
-            y2 = origin[1] + line_length * sin_angle
+            x1 = origin[0] + line_length * cos_angle
+            y1 = origin[1] + line_length * sin_angle
+            x2 = origin[0] - line_length * cos_angle
+            y2 = origin[1] - line_length * sin_angle
             self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=3, tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
 
         if max_force > 0:
             line_length = (max_force * 5) / 2
-            x1 = origin[0] - line_length * cos_angle
-            y1 = origin[1] - line_length * sin_angle
-            x2 = origin[0] + line_length * cos_angle
-            y2 = origin[1] + line_length * sin_angle
+            x1 = origin[0] + line_length * cos_angle
+            y1 = origin[1] + line_length * sin_angle
+            x2 = origin[0] - line_length * cos_angle
+            y2 = origin[1] - line_length * sin_angle
             self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
 
     def _drawVacuumMaxD(self, obj, origin, max_d, obj_angle, id):
         line_length = max_d * 5
-        angle_rad = numpy.radians(obj_angle)
+        angle_rad = numpy.radians(obj_angle) - numpy.radians(90)
         end_x = origin[0] + line_length * numpy.cos(angle_rad)
         end_y = origin[1] + line_length * numpy.sin(angle_rad)
         self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='black', width=2, tags=('passthrough', 'part', 'vacuumMaxD', f'vacuumMaxD&&{id}'))
@@ -1297,12 +1302,15 @@ class WME(tk.Tk):
         # Always delete canvas items to properly clear visualization when disabled
         self.level_canvas.delete('parent')
         self.level_canvas.delete('connectedSpout')
-        # Always redraw lines to ensure they're in correct position when objects change
-        for obj in self.level.objects:
-            canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
-            obj_id = f'object-{str(obj.id)}'
-            self._drawParentConnections(obj, canvas_pos, obj_id)
-        self.updateLayers()
+        # Check if parent connection visualization is enabled
+        parent_enabled = self.settings.get('view.parent', True)
+        if parent_enabled:
+            # Always redraw lines to ensure they're in correct position when objects change
+            for obj in self.level.objects:
+                canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
+                obj_id = f'object-{str(obj.id)}'
+                self._drawParentConnections(obj, canvas_pos, obj_id)
+            self.updateLayers()
 
     def _drawParentConnections(self, obj, canvas_pos, id):
         try:
@@ -2367,6 +2375,8 @@ class WME(tk.Tk):
         obj.pos = self.windowPosToWMWPos(numpy.array((event.x, event.y)) + self.dragInfo['offset'])
 
         self.updateObject(obj)
+        self._updateParticleTrajectories()
+        self._updateVacuum()
         self._updateParentConnections()
 
     def windowPosToWMWPos(self, pos : tuple = (0,0), multiplier: float = OBJECT_MULTIPLIER):
@@ -2404,6 +2414,9 @@ class WME(tk.Tk):
         self.updateObject(obj)
         self.updateProperties()
         self.updateSelectionRectangle()
+        self._updateParticleTrajectories()
+        self._updateVacuum()
+        self._updateParentConnections()
         if event:
             obj_pos = self.getObjectPosition(obj.pos, obj.offset)
             self.dragInfo['offset'] = numpy.array((obj_pos[0], obj_pos[1])) - (self.level_canvas.canvasx(event.x), self.level_canvas.canvasy(event.y))
