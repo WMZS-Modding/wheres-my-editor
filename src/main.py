@@ -877,8 +877,11 @@ class WME(tk.Tk):
 
         self.bindObject(f'object&&{id}', obj)
 
-        self.updateSelectionRectangle()
-        self.updateLevelScroll()
+        # Only update selection rectangle and scroll if this is the selected object
+        # This avoids expensive operations during level loading
+        if obj == self.selectedObject:
+            self.updateSelectionRectangle()
+            self.updateLevelScroll()
 
         # self._updateParticleTrajectories(obj)
         # self._updateVacuum()
@@ -1201,10 +1204,10 @@ class WME(tk.Tk):
                 self._drawDrainAngleVariation(obj, canvas_pos, angle_variation, obj_angle, id)
 
             if vacuum_base_angle != 0 or vacuum_min_angle != 0 or vacuum_max_angle != 0:
-                self._drawVacuumAngles(obj, canvas_pos, vacuum_base_angle, vacuum_min_angle, vacuum_max_angle, obj_angle, id)
+                self._drawVacuumAngles(obj, canvas_pos, vacuum_base_angle, vacuum_min_angle, vacuum_max_angle, obj_angle, id, vacuum_center_offset_A, vacuum_center_offset_B)
 
             if vacuum_force > 0 or vacuum_max_force > 0:
-                self._drawVacuumForces(obj, canvas_pos, vacuum_force, vacuum_max_force, obj_angle, id)
+                self._drawVacuumForces(obj, canvas_pos, vacuum_force, vacuum_max_force, obj_angle, id, vacuum_center_offset_A, vacuum_center_offset_B, vacuum_base_angle)
 
             if vacuum_max_d > 0:
                 self._drawVacuumMaxD(obj, canvas_pos, vacuum_max_d, obj_angle, id)
@@ -1242,47 +1245,94 @@ class WME(tk.Tk):
 
             self.level_canvas.create_polygon(end_x, end_y, arrow_x1, arrow_y1, arrow_x2, arrow_y2, fill='white', outline='white', tags=('passthrough', 'part', 'drainAngleVariation', f'drainAngleVariation&&{id}'))
 
-    def _drawVacuumAngles(self, obj, origin, base_angle, min_angle, max_angle, obj_angle, id):
+    def _drawVacuumAngles(self, obj, origin, base_angle, min_angle, max_angle, obj_angle, id, center_offset_A=None, center_offset_B=None):
         arrow_length = 25
 
+        # Calculate the X-axis direction (rotated by base_angle from obj_angle)
+        x_axis_angle = obj_angle + base_angle
+
         if base_angle != 0:
-            angle_rad = numpy.radians(obj_angle - base_angle)
+            # Draw the X-axis direction
+            angle_rad = numpy.radians(x_axis_angle)
             end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
             end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
             self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='blue', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
 
-        if min_angle != 0:
-            angle_rad = numpy.radians(obj_angle - min_angle)
-            end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
-            end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
-            self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='green', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
+        if min_angle != 0 and center_offset_B is not None and len(center_offset_B) >= 2:
+            # Convert to screen coordinates using the relative coordinate system
+            angle_rad = numpy.radians(x_axis_angle)
+            point_B_x = origin[0] + center_offset_B[0] * 5 * numpy.cos(angle_rad) - center_offset_B[1] * 5 * numpy.sin(angle_rad)
+            point_B_y = origin[1] + center_offset_B[0] * 5 * numpy.sin(angle_rad) + center_offset_B[1] * 5 * numpy.cos(angle_rad)
 
-        if max_angle != 0:
-            angle_rad = numpy.radians(obj_angle - max_angle)
-            end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
-            end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
-            self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='red', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
+            # From point B, rotate counterclockwise from positive X-axis by min_angle
+            angle_rad = numpy.radians(x_axis_angle + min_angle)
+            end_x = point_B_x + arrow_length * numpy.cos(angle_rad)
+            end_y = point_B_y + arrow_length * numpy.sin(angle_rad)
+            self.level_canvas.create_line(point_B_x, point_B_y, end_x, end_y, fill='green', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
 
-    def _drawVacuumForces(self, obj, origin, force, max_force, obj_angle, id):
-        angle_rad = numpy.radians(obj_angle)
+        if max_angle != 0 and center_offset_A is not None and len(center_offset_A) >= 2:
+            # Calculate point A in screen coordinates
+            angle_rad = numpy.radians(x_axis_angle)
+            point_A_x = origin[0] + center_offset_A[0] * 5 * numpy.cos(angle_rad) - center_offset_A[1] * 5 * numpy.sin(angle_rad)
+            point_A_y = origin[1] + center_offset_A[0] * 5 * numpy.sin(angle_rad) + center_offset_A[1] * 5 * numpy.cos(angle_rad)
+
+            # From point A, rotate counterclockwise from positive X-axis by max_angle
+            angle_rad = numpy.radians(x_axis_angle + max_angle)
+            end_x = point_A_x + arrow_length * numpy.cos(angle_rad)
+            end_y = point_A_y + arrow_length * numpy.sin(angle_rad)
+            self.level_canvas.create_line(point_A_x, point_A_y, end_x, end_y, fill='red', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
+
+    def _drawVacuumForces(self, obj, origin, force, max_force, obj_angle, id, center_offset_A=None, center_offset_B=None, base_angle=0):
+        # Calculate the X-axis direction (rotated by base_angle from obj_angle)
+        x_axis_angle = obj_angle + base_angle
+        angle_rad = numpy.radians(x_axis_angle)
         cos_angle = numpy.cos(angle_rad)
         sin_angle = numpy.sin(angle_rad)
 
-        if force > 0:
-            line_length = (force * 5) / 2
-            x1 = origin[0] + line_length * cos_angle
-            y1 = origin[1] + line_length * sin_angle
-            x2 = origin[0] - line_length * cos_angle
-            y2 = origin[1] - line_length * sin_angle
-            self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=3, tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+        if center_offset_A is not None and len(center_offset_A) >= 2 and center_offset_B is not None and len(center_offset_B) >= 2:
+            # Calculate points A and B in screen coordinates
+            point_A_x = origin[0] + center_offset_A[0] * 5 * cos_angle - center_offset_A[1] * 5 * sin_angle
+            point_A_y = origin[1] + center_offset_A[0] * 5 * sin_angle + center_offset_A[1] * 5 * cos_angle
 
-        if max_force > 0:
-            line_length = (max_force * 5) / 2
-            x1 = origin[0] + line_length * cos_angle
-            y1 = origin[1] + line_length * sin_angle
-            x2 = origin[0] - line_length * cos_angle
-            y2 = origin[1] - line_length * sin_angle
-            self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+            point_B_x = origin[0] + center_offset_B[0] * 5 * cos_angle - center_offset_B[1] * 5 * sin_angle
+            point_B_y = origin[1] + center_offset_B[0] * 5 * sin_angle + center_offset_B[1] * 5 * cos_angle
+
+            if force > 0:
+                # VacuumForce at the end edge (along the X-axis direction from points A and B)
+                line_length = (force * 5) / 2
+                # Draw force line from point A along X-axis
+                x1 = point_A_x + line_length * cos_angle
+                y1 = point_A_y + line_length * sin_angle
+                x2 = point_A_x - line_length * cos_angle
+                y2 = point_A_y - line_length * sin_angle
+                self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=3, tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+
+            if max_force > 0:
+                # VacuumMaxForce at the start edge (along the X-axis direction from points A and B)
+                line_length = (max_force * 5) / 2
+                # Draw force line from point B along X-axis
+                x1 = point_B_x + line_length * cos_angle
+                y1 = point_B_y + line_length * sin_angle
+                x2 = point_B_x - line_length * cos_angle
+                y2 = point_B_y - line_length * sin_angle
+                self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+        else:
+            # Fallback to original behavior if center offsets are not available
+            if force > 0:
+                line_length = (force * 5) / 2
+                x1 = origin[0] + line_length * cos_angle
+                y1 = origin[1] + line_length * sin_angle
+                x2 = origin[0] - line_length * cos_angle
+                y2 = origin[1] - line_length * sin_angle
+                self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=3, tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+
+            if max_force > 0:
+                line_length = (max_force * 5) / 2
+                x1 = origin[0] + line_length * cos_angle
+                y1 = origin[1] + line_length * sin_angle
+                x2 = origin[0] - line_length * cos_angle
+                y2 = origin[1] - line_length * sin_angle
+                self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
 
     def _drawVacuumMaxD(self, obj, origin, max_d, obj_angle, id):
         line_length = max_d * 5
@@ -2345,18 +2395,21 @@ class WME(tk.Tk):
 
         self.selectedObject = None
         self.selectedPart = {'type': None, 'id': None, 'property': None}
+        
+        for obj in self.level.objects:
+            self.updateObject(obj)
+
+        # Defer expensive UI updates until after all objects are drawn
         self.updateProperties()
         self.updateSelectionRectangle()
         self.updateObjectSelector()
-
-        for obj in self.level.objects:
-            self.updateObject(obj)
 
         # Call the proper update functions that handle both enabling and disabling
         self._updateParticleTrajectories()
         self._updateVacuum()
         self._updateParentConnections()
 
+        # Defer scroll updates until after all objects are drawn
         self.updateLevelScroll()
         self.level_canvas.xview_moveto(0.23)
         self.level_canvas.yview_moveto(0.2)
