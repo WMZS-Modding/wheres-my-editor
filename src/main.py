@@ -792,6 +792,7 @@ class WME(tk.Tk):
 
         self.level_canvas.delete(f'radius&&{id}')
         self.level_canvas.delete(f'path&&{id}')
+        self.level_canvas.delete(f'child_sprite&&{id}')
 
         if len(items) > 0:
             if background:
@@ -814,6 +815,39 @@ class WME(tk.Tk):
 
             if len(obj._foreground) == 0 and len(obj._background) == 0:
                 self.level_canvas.create_image(canvas_pos[0], canvas_pos[1], anchor = 'c', image = ImageTk.PhotoImage(Image.new('RGBA', (1, 1), 'black')), tags = ('object', 'foreground', id))
+
+        if hasattr(obj, '_child_sprites') and len(obj._child_sprites) > 0:
+            for sprite in obj._child_sprites:
+                try:
+                    sprite_pos = numpy.array(sprite.pos)
+                    sprite_size = (numpy.array(sprite.image.size) / sprite.scale) * [1, -1]
+
+                    obj_angle = float(obj.properties.get('Angle', 0))
+
+                    if obj_angle != 0:
+                        angle_rad = numpy.radians(obj_angle)
+                        cos_a = numpy.cos(angle_rad)
+                        sin_a = numpy.sin(angle_rad)
+                        rotated_x = sprite_pos[0] * cos_a - sprite_pos[1] * sin_a
+                        rotated_y = sprite_pos[0] * sin_a + sprite_pos[1] * cos_a
+                        sprite_pos = numpy.array([rotated_x, rotated_y])
+
+                    sprite_canvas_pos = self.getObjectPosition(obj.pos + sprite_pos, offset)
+
+                    sprite_image = sprite.image
+                    if obj_angle != 0:
+                        sprite_image = sprite_image.rotate(obj_angle, resample = Image.BILINEAR)
+
+                    sprite_photoimage = ImageTk.PhotoImage(sprite_image)
+
+                    self.level_canvas.create_image(sprite_canvas_pos[0], sprite_canvas_pos[1], anchor = 'c', image = sprite_photoimage, tags = ('object', 'child_sprite', id))
+
+                    if not hasattr(obj, '_child_sprite_photoimages'):
+                        obj._child_sprite_photoimages = []
+                    obj._child_sprite_photoimages.append(sprite_photoimage)
+
+                except Exception as e:
+                    logging.warning(f'Failed to create child sprite for {obj.name}: {e}')
 
         if (obj == self.selectedObject or self.settings.get('view.radius', True)) and obj.Type is not None:
             properties = filter(lambda name : obj.Type.PROPERTIES[name].get('type', 'string') == 'radius', obj.Type.PROPERTIES)
@@ -840,12 +874,10 @@ class WME(tk.Tk):
             if isinstance(path_points, dict) and len(path_points) > 0:
                 self._drawPathPosPoints(obj, path_points, canvas_pos, id)
 
-            # Handle PathPoints property (for pipes and similar objects)
             try:
                 path_points_data = obj.Type.get_property('PathPoints')
                 logging.debug(f'PathPoints property value: {path_points_data}')
 
-                # Handle both string and list formats
                 if path_points_data:
                     if isinstance(path_points_data, str):
                         path_points_str = path_points_data
@@ -877,8 +909,6 @@ class WME(tk.Tk):
 
         self.bindObject(f'object&&{id}', obj)
 
-        # Only update selection rectangle and scroll if this is the selected object
-        # This avoids expensive operations during level loading
         if obj == self.selectedObject:
             self.updateSelectionRectangle()
             self.updateLevelScroll()
@@ -888,26 +918,21 @@ class WME(tk.Tk):
 
     def _updateParticleTrajectories(self, specific_obj=None):
         trajectory_enabled = self.settings.get('view.particleTrajectory', False)
-        # Always delete canvas items to properly clear visualization when disabled
         self.level_canvas.delete('particleTrajectory')
         self.level_canvas.delete('offsetVariation')
         self.level_canvas.delete('angleVariation')
         self.level_canvas.delete('particleVariation')
         self.level_canvas.delete('particleOffset')
         if trajectory_enabled:
-            # Always redraw all spout objects to ensure trajectories are updated correctly
             objects_to_check = self.level.objects
 
             for obj in objects_to_check:
-                # Skip ice objects (identified by TemperatureType=cold or ObjectType=icicle)
                 if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
                     if obj.defaultProperties.get('TemperatureType') == 'cold' or 'icicle' in obj.defaultProperties.get('ObjectType', '').lower():
                         continue
 
-                # Check if object is a spout by checking for particle-related properties in defaultProperties
                 is_spout = False
                 if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
-                    # Check for properties that indicate this is a spout
                     spout_indicators = ['ParticleSpeed', 'Angle', 'ExpulsionAngle', 'FluidType', 'OffsetToMouth']
                     for prop in spout_indicators:
                         if prop in obj.defaultProperties:
@@ -921,15 +946,12 @@ class WME(tk.Tk):
 
     def _updateVacuum(self):
         vacuum_enabled = self.settings.get('view.vacuum', False)
-        # Always delete canvas items to properly clear visualization when disabled
         self.level_canvas.delete('drainAngleVariation')
-        self.level_canvas.delete('vacuumAngles')
+        self.level_canvas.delete('vacuumWindField')
         self.level_canvas.delete('vacuumForces')
-        self.level_canvas.delete('vacuumMaxD')
         self.level_canvas.delete('vacuumFriction')
         if vacuum_enabled:
             for obj in self.level.objects:
-                # Check if VacuumForce is explicitly set or if object type has default VacuumForce
                 has_vacuum_force = (obj.properties and 'VacuumForce' in obj.properties) or (obj.Type and 'VacuumForce' in obj.Type.PROPERTIES)
                 if has_vacuum_force:
                     canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
@@ -938,14 +960,12 @@ class WME(tk.Tk):
 
     def _drawParticleTrajectory(self, obj, canvas_pos, id):
         try:
-            # Merge defaultProperties with obj.properties (defaultProperties override)
             properties = dict(obj.properties) if obj.properties else {}
             if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
                 for prop_name, prop_value in obj.defaultProperties.items():
                     if prop_name not in properties:
                         properties[prop_name] = prop_value
 
-            # Get ParticleSpeed from merged properties or use default from object type
             particle_speed = None
             if 'ParticleSpeed' in properties:
                 particle_speed = float(properties.get('ParticleSpeed', 1))
@@ -1157,14 +1177,13 @@ class WME(tk.Tk):
             'drymud': '#8B7355',
             'wetmud': '#5C4033'
         }
-        return fluid_colors.get(fluid_type, '#000000')  # Default to black
+        return fluid_colors.get(fluid_type, '#000000')
 
     def _drawDrainVisualizations(self, obj, canvas_pos, id):
         try:
             if not obj.properties:
                 return
 
-            # Merge defaultProperties with obj.properties (defaultProperties override)
             properties = dict(obj.properties) if obj.properties else {}
             if hasattr(obj, 'defaultProperties') and obj.defaultProperties:
                 for prop_name, prop_value in obj.defaultProperties.items():
@@ -1174,7 +1193,6 @@ class WME(tk.Tk):
             spout_type = properties.get('SpoutType', None)
             fan_type = properties.get('FanType', None)
 
-            # Use defaults if still None
             if spout_type is None:
                 spout_type = 'spout'
             if fan_type is None:
@@ -1183,17 +1201,16 @@ class WME(tk.Tk):
             if spout_type not in ['Drain', 'DrainSpout'] and fan_type != 'fan':
                 return
 
-            # Get object's rotation angle (negate to fix flip)
             obj_angle = -float(properties.get('Angle', 0))
 
-            angle_variation = float(properties.get('AngleVariation', 0))
-            vacuum_base_angle = float(properties.get('VacuumBaseAngle', 0))
-            vacuum_min_angle = float(properties.get('VacuumMinAngle', 0))
-            vacuum_max_angle = float(properties.get('VacuumMaxAngle', 0))
-            vacuum_force = float(properties.get('VacuumForce', 0))
-            vacuum_max_force = float(properties.get('VacuumMaxForce', 0))
-            vacuum_max_d = float(properties.get('VacuumMaxD', 0))
-            vacuum_friction = float(properties.get('VacuumFriction', 0))
+            angle_variation = float(properties.get('AngleVariation', obj.defaultProperties.get('AngleVariation', 0)))
+            vacuum_base_angle = float(properties.get('VacuumBaseAngle', obj.defaultProperties.get('VacuumBaseAngle', 0)))
+            vacuum_min_angle = float(properties.get('VacuumMinAngle', obj.defaultProperties.get('VacuumMinAngle', 0)))
+            vacuum_max_angle = float(properties.get('VacuumMaxAngle', obj.defaultProperties.get('VacuumMaxAngle', 0)))
+            vacuum_force = float(properties.get('VacuumForce', obj.defaultProperties.get('VacuumForce', 0)))
+            vacuum_max_force = float(properties.get('VacuumMaxForce', obj.defaultProperties.get('VacuumMaxForce', 0)))
+            vacuum_max_d = float(properties.get('VacuumMaxD', obj.defaultProperties.get('VacuumMaxD', 0)))
+            vacuum_friction = float(properties.get('VacuumFriction', obj.defaultProperties.get('VacuumFriction', 0)))
 
             vacuum_center_offset_A_str = properties.get('VacuumCenterOffsetA', '0 0')
             vacuum_center_offset_B_str = properties.get('VacuumCenterOffsetB', '0 0')
@@ -1203,14 +1220,11 @@ class WME(tk.Tk):
             if angle_variation > 0:
                 self._drawDrainAngleVariation(obj, canvas_pos, angle_variation, obj_angle, id)
 
-            if vacuum_base_angle != 0 or vacuum_min_angle != 0 or vacuum_max_angle != 0:
-                self._drawVacuumAngles(obj, canvas_pos, vacuum_base_angle, vacuum_min_angle, vacuum_max_angle, obj_angle, id, vacuum_center_offset_A, vacuum_center_offset_B)
+            if vacuum_min_angle != 0 or vacuum_max_angle != 0 or vacuum_max_d > 0:
+                self._drawVacuumWindField(obj, canvas_pos, vacuum_min_angle, vacuum_max_angle, vacuum_max_d, obj_angle, id, vacuum_center_offset_A, vacuum_center_offset_B, vacuum_base_angle)
 
             if vacuum_force > 0 or vacuum_max_force > 0:
                 self._drawVacuumForces(obj, canvas_pos, vacuum_force, vacuum_max_force, obj_angle, id, vacuum_center_offset_A, vacuum_center_offset_B, vacuum_base_angle)
-
-            if vacuum_max_d > 0:
-                self._drawVacuumMaxD(obj, canvas_pos, vacuum_max_d, obj_angle, id)
 
             if vacuum_friction > 0:
                 self._drawVacuumFriction(obj, canvas_pos, vacuum_friction, obj_angle, id)
@@ -1245,79 +1259,109 @@ class WME(tk.Tk):
 
             self.level_canvas.create_polygon(end_x, end_y, arrow_x1, arrow_y1, arrow_x2, arrow_y2, fill='white', outline='white', tags=('passthrough', 'part', 'drainAngleVariation', f'drainAngleVariation&&{id}'))
 
-    def _drawVacuumAngles(self, obj, origin, base_angle, min_angle, max_angle, obj_angle, id, center_offset_A=None, center_offset_B=None):
-        arrow_length = 25
-
-        # Calculate the X-axis direction (rotated by base_angle from obj_angle)
+    def _drawVacuumWindField(self, obj, origin, min_angle, max_angle, max_d, obj_angle, id, center_offset_A=None, center_offset_B=None, base_angle=0):
         x_axis_angle = obj_angle + base_angle
+        angle_rad = numpy.radians(x_axis_angle)
+        cos_angle = numpy.cos(angle_rad)
+        sin_angle = numpy.sin(angle_rad)
 
-        if base_angle != 0:
-            # Draw the X-axis direction
-            angle_rad = numpy.radians(x_axis_angle)
-            end_x = origin[0] + arrow_length * numpy.cos(angle_rad)
-            end_y = origin[1] + arrow_length * numpy.sin(angle_rad)
-            self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='blue', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
+        if center_offset_A is not None and len(center_offset_A) >= 2:
+            point_A_x = origin[0] - center_offset_A[0] * 5 * cos_angle - center_offset_A[1] * 5 * sin_angle
+            point_A_y = origin[1] - center_offset_A[0] * 5 * sin_angle + center_offset_A[1] * 5 * cos_angle
+        else:
+            point_A_x = origin[0]
+            point_A_y = origin[1]
 
-        if min_angle != 0 and center_offset_B is not None and len(center_offset_B) >= 2:
-            # Convert to screen coordinates using the relative coordinate system
-            angle_rad = numpy.radians(x_axis_angle)
-            point_B_x = origin[0] + center_offset_B[0] * 5 * numpy.cos(angle_rad) - center_offset_B[1] * 5 * numpy.sin(angle_rad)
-            point_B_y = origin[1] + center_offset_B[0] * 5 * numpy.sin(angle_rad) + center_offset_B[1] * 5 * numpy.cos(angle_rad)
+        if center_offset_B is not None and len(center_offset_B) >= 2:
+            point_B_x = origin[0] - center_offset_B[0] * 5 * cos_angle - center_offset_B[1] * 5 * sin_angle
+            point_B_y = origin[1] - center_offset_B[0] * 5 * sin_angle + center_offset_B[1] * 5 * cos_angle
+        else:
+            point_B_x = origin[0]
+            point_B_y = origin[1]
 
-            # From point B, rotate counterclockwise from positive X-axis by min_angle
-            angle_rad = numpy.radians(x_axis_angle + min_angle)
-            end_x = point_B_x + arrow_length * numpy.cos(angle_rad)
-            end_y = point_B_y + arrow_length * numpy.sin(angle_rad)
-            self.level_canvas.create_line(point_B_x, point_B_y, end_x, end_y, fill='green', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
+        if center_offset_A is not None and len(center_offset_A) >= 2:
+            self.level_canvas.create_oval(point_A_x - 3, point_A_y - 3, point_A_x + 3, point_A_y + 3, fill='cyan', outline='cyan', tags=('passthrough', 'part', 'vacuumWindField', f'vacuumWindField&&{id}'))
+        if center_offset_B is not None and len(center_offset_B) >= 2:
+            self.level_canvas.create_oval(point_B_x - 3, point_B_y - 3, point_B_x + 3, point_B_y + 3, fill='magenta', outline='magenta', tags=('passthrough', 'part', 'vacuumWindField', f'vacuumWindField&&{id}'))
 
-        if max_angle != 0 and center_offset_A is not None and len(center_offset_A) >= 2:
-            # Calculate point A in screen coordinates
-            angle_rad = numpy.radians(x_axis_angle)
-            point_A_x = origin[0] + center_offset_A[0] * 5 * numpy.cos(angle_rad) - center_offset_A[1] * 5 * numpy.sin(angle_rad)
-            point_A_y = origin[1] + center_offset_A[0] * 5 * numpy.sin(angle_rad) + center_offset_A[1] * 5 * numpy.cos(angle_rad)
+        self._drawArrowLine(point_A_x, point_A_y, point_B_x, point_B_y, 'blue', 2, id, 'vacuumWindField')
 
-            # From point A, rotate counterclockwise from positive X-axis by max_angle
-            angle_rad = numpy.radians(x_axis_angle + max_angle)
-            end_x = point_A_x + arrow_length * numpy.cos(angle_rad)
-            end_y = point_A_y + arrow_length * numpy.sin(angle_rad)
-            self.level_canvas.create_line(point_A_x, point_A_y, end_x, end_y, fill='red', width=2, tags=('passthrough', 'part', 'vacuumAngles', f'vacuumAngles&&{id}'))
+        if max_d > 0:
+            angle_rad = numpy.radians(x_axis_angle - min_angle + 180)
+            length = max_d * 5
+            point_A_prime_x = point_A_x + length * numpy.cos(angle_rad)
+            point_A_prime_y = point_A_y + length * numpy.sin(angle_rad)
+            self._drawArrowLine(point_A_x, point_A_y, point_A_prime_x, point_A_prime_y, 'green', 2, id, 'vacuumWindField')
+        else:
+            point_A_prime_x = point_A_x
+            point_A_prime_y = point_A_y
+
+        if max_d > 0:
+            angle_rad = numpy.radians(x_axis_angle - max_angle + 180)
+            length = max_d * 5
+            point_B_prime_x = point_B_x + length * numpy.cos(angle_rad)
+            point_B_prime_y = point_B_y + length * numpy.sin(angle_rad)
+            self._drawArrowLine(point_B_x, point_B_y, point_B_prime_x, point_B_prime_y, 'red', 2, id, 'vacuumWindField')
+        else:
+            point_B_prime_x = point_B_x
+            point_B_prime_y = point_B_y
+
+        if min_angle != 0 or max_angle != 0:
+            self.level_canvas.create_line(point_A_prime_x, point_A_prime_y, point_B_prime_x, point_B_prime_y, fill='purple', width=2, tags=('passthrough', 'part', 'vacuumWindField', f'vacuumWindField&&{id}'))
+
+    def _drawArrowLine(self, x1, y1, x2, y2, color, width, id, tag):
+        self.level_canvas.create_line(x1, y1, x2, y2, fill=color, width=width, tags=('passthrough', 'part', tag, f'{tag}&&{id}'))
+
+        angle = numpy.arctan2(y2 - y1, x2 - x1)
+        arrow_size = 5
+        arrow_angle1 = angle + numpy.radians(150)
+        arrow_angle2 = angle - numpy.radians(150)
+
+        arrow_x1 = x2 + arrow_size * numpy.cos(arrow_angle1)
+        arrow_y1 = y2 + arrow_size * numpy.sin(arrow_angle1)
+        arrow_x2 = x2 + arrow_size * numpy.cos(arrow_angle2)
+        arrow_y2 = y2 + arrow_size * numpy.sin(arrow_angle2)
+
+        self.level_canvas.create_polygon(x2, y2, arrow_x1, arrow_y1, arrow_x2, arrow_y2, fill=color, outline=color, tags=('passthrough', 'part', tag, f'{tag}&&{id}'))
 
     def _drawVacuumForces(self, obj, origin, force, max_force, obj_angle, id, center_offset_A=None, center_offset_B=None, base_angle=0):
-        # Calculate the X-axis direction (rotated by base_angle from obj_angle)
         x_axis_angle = obj_angle + base_angle
         angle_rad = numpy.radians(x_axis_angle)
         cos_angle = numpy.cos(angle_rad)
         sin_angle = numpy.sin(angle_rad)
 
         if center_offset_A is not None and len(center_offset_A) >= 2 and center_offset_B is not None and len(center_offset_B) >= 2:
-            # Calculate points A and B in screen coordinates
-            point_A_x = origin[0] + center_offset_A[0] * 5 * cos_angle - center_offset_A[1] * 5 * sin_angle
-            point_A_y = origin[1] + center_offset_A[0] * 5 * sin_angle + center_offset_A[1] * 5 * cos_angle
+            point_A_x = origin[0] - center_offset_A[0] * 5 * cos_angle - center_offset_A[1] * 5 * sin_angle
+            point_A_y = origin[1] - center_offset_A[0] * 5 * sin_angle + center_offset_A[1] * 5 * cos_angle
 
-            point_B_x = origin[0] + center_offset_B[0] * 5 * cos_angle - center_offset_B[1] * 5 * sin_angle
-            point_B_y = origin[1] + center_offset_B[0] * 5 * sin_angle + center_offset_B[1] * 5 * cos_angle
-
-            if force > 0:
-                # VacuumForce at the end edge (along the X-axis direction from points A and B)
-                line_length = (force * 5) / 2
-                # Draw force line from point A along X-axis
-                x1 = point_A_x + line_length * cos_angle
-                y1 = point_A_y + line_length * sin_angle
-                x2 = point_A_x - line_length * cos_angle
-                y2 = point_A_y - line_length * sin_angle
-                self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=3, tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+            point_B_x = origin[0] - center_offset_B[0] * 5 * cos_angle - center_offset_B[1] * 5 * sin_angle
+            point_B_y = origin[1] - center_offset_B[0] * 5 * sin_angle + center_offset_B[1] * 5 * cos_angle
 
             if max_force > 0:
-                # VacuumMaxForce at the start edge (along the X-axis direction from points A and B)
-                line_length = (max_force * 5) / 2
-                # Draw force line from point B along X-axis
-                x1 = point_B_x + line_length * cos_angle
-                y1 = point_B_y + line_length * sin_angle
-                x2 = point_B_x - line_length * cos_angle
-                y2 = point_B_y - line_length * sin_angle
-                self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+                midpoint_AB_x = (point_A_x + point_B_x) / 2
+                midpoint_AB_y = (point_A_y + point_B_y) / 2
+                self.level_canvas.create_text(midpoint_AB_x, midpoint_AB_y + 10, text=str(int(max_force)), fill='red', font=('Arial', 10, 'bold'), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
+
+            if force > 0:
+                min_angle = float(obj.properties.get('VacuumMinAngle', obj.defaultProperties.get('VacuumMinAngle', 0)))
+                max_angle = float(obj.properties.get('VacuumMaxAngle', obj.defaultProperties.get('VacuumMaxAngle', 0)))
+                max_d = float(obj.properties.get('VacuumMaxD', obj.defaultProperties.get('VacuumMaxD', 0)))
+
+                if max_d > 0:
+                    angle_rad = numpy.radians(x_axis_angle - min_angle + 180)
+                    length = max_d * 5
+                    point_A_prime_x = point_A_x + length * numpy.cos(angle_rad)
+                    point_A_prime_y = point_A_y + length * numpy.sin(angle_rad)
+
+                    angle_rad = numpy.radians(x_axis_angle - max_angle + 180)
+                    length = max_d * 5
+                    point_B_prime_x = point_B_x + length * numpy.cos(angle_rad)
+                    point_B_prime_y = point_B_y + length * numpy.sin(angle_rad)
+
+                    midpoint_A_primeB_prime_x = (point_A_prime_x + point_B_prime_x) / 2
+                    midpoint_A_primeB_prime_y = (point_A_prime_y + point_B_prime_y) / 2
+                    self.level_canvas.create_text(midpoint_A_primeB_prime_x, midpoint_A_primeB_prime_y - 10, text=str(int(force)), fill='red', font=('Arial', 10, 'bold'), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
         else:
-            # Fallback to original behavior if center offsets are not available
             if force > 0:
                 line_length = (force * 5) / 2
                 x1 = origin[0] + line_length * cos_angle
@@ -1333,13 +1377,6 @@ class WME(tk.Tk):
                 x2 = origin[0] - line_length * cos_angle
                 y2 = origin[1] - line_length * sin_angle
                 self.level_canvas.create_line(x1, y1, x2, y2, fill='red', width=2, dash=(5, 3), tags=('passthrough', 'part', 'vacuumForces', f'vacuumForces&&{id}'))
-
-    def _drawVacuumMaxD(self, obj, origin, max_d, obj_angle, id):
-        line_length = max_d * 5
-        angle_rad = numpy.radians(obj_angle) - numpy.radians(90)
-        end_x = origin[0] + line_length * numpy.cos(angle_rad)
-        end_y = origin[1] + line_length * numpy.sin(angle_rad)
-        self.level_canvas.create_line(origin[0], origin[1], end_x, end_y, fill='black', width=2, tags=('passthrough', 'part', 'vacuumMaxD', f'vacuumMaxD&&{id}'))
 
     def _drawVacuumFriction(self, obj, origin, friction, obj_angle, id):
         radius = friction * 10
@@ -1349,13 +1386,10 @@ class WME(tk.Tk):
         self.level_canvas.create_circle(origin[0], origin[1], radius, fill='', outline='orange', width=2, tags=('passthrough', 'part', 'vacuumFriction', f'vacuumFriction&&{id}'))
 
     def _updateParentConnections(self):
-        # Always delete canvas items to properly clear visualization when disabled
         self.level_canvas.delete('parent')
         self.level_canvas.delete('connectedSpout')
-        # Check if parent connection visualization is enabled
         parent_enabled = self.settings.get('view.parent', True)
         if parent_enabled:
-            # Always redraw lines to ensure they're in correct position when objects change
             for obj in self.level.objects:
                 canvas_pos = self.getObjectPosition(obj.pos, obj.offset)
                 obj_id = f'object-{str(obj.id)}'
@@ -2028,7 +2062,7 @@ class WME(tk.Tk):
             if not isLevel:
                 self.updateObject(obj)
                 self._updateParticleTrajectories()
-                if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
+                if property in ['Angle', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction', 'VacuumCenterOffsetA', 'VacuumCenterOffsetB']:
                     self._updateVacuum()
                 if property in ['Parent', 'ConnectedSpout', 'ConnectedObject', 'ConnectedConverter'] or property.startswith('ConnectedSpout') or property.startswith('ConnectedObject') or property.startswith('ConnectedConverter'):
                     self._updateParentConnections()
@@ -2040,7 +2074,7 @@ class WME(tk.Tk):
                 self.updateObject(obj)
                 self.updateProperties(obj)
                 self._updateParticleTrajectories()
-                if property in ['AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction']:
+                if property in ['Angle', 'AngleVariation', 'VacuumBaseAngle', 'VacuumMinAngle', 'VacuumMaxAngle', 'VacuumForce', 'VacuumMaxForce', 'VacuumMaxD', 'VacuumFriction', 'VacuumCenterOffsetA', 'VacuumCenterOffsetB']:
                     self._updateVacuum()
                 if property in ['Parent', 'ConnectedSpout', 'ConnectedObject', 'ConnectedConverter'] or property.startswith('ConnectedSpout') or property.startswith('ConnectedObject') or property.startswith('ConnectedConverter'):
                     self._updateParentConnections()
