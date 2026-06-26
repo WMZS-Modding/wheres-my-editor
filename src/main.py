@@ -2800,7 +2800,7 @@ class WME(tk.Tk):
         imagePath = os.path.splitext(filename)[0] + '.png'
 
         try:
-            self.level.image.save(imagePath)
+            self.level.image.save(imagePath, bits = 8)
         except:
             logging.exception('Failed to save level image')
 
@@ -2808,7 +2808,7 @@ class WME(tk.Tk):
             with open(filename, 'wb') as file:
                 file.write(xml)
 
-            self.level._image.save(os.path.splitext(filename)[0] + '.png')
+            self.level._image.save(os.path.splitext(filename)[0] + '.png', bits = 8)
 
             self.updateProgressBar(1, f'Successfully saved level', 1)
         except:
